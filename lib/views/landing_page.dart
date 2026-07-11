@@ -1,14 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/wedding_model.dart';
-import '../models/guest_model.dart';
 import '../services/storage_service.dart';
 import 'guest_list_page.dart';
 import 'onboarding_page.dart';
 
 class LandingPage extends StatefulWidget {
-  final List<Guest>? initialGuests;
-  const LandingPage({super.key, this.initialGuests});
+  const LandingPage({super.key});
 
   @override
   State<LandingPage> createState() => _LandingPageState();
@@ -70,18 +68,20 @@ class _LandingPageState extends State<LandingPage> {
           ElevatedButton(
             onPressed: () async {
               setState(() {
-                _wedding!.partner1 = p1Ctrl.text;
-                _wedding!.partner2 = p2Ctrl.text;
-                _wedding!.dateStr = dateCtrl.text;
-                _wedding!.timeStr = timeCtrl.text;
-                _wedding!.churchAddress = churchCtrl.text;
-                _wedding!.venueAddress = venueCtrl.text;
+                _wedding!.partner1 = p1Ctrl.text.trim();
+                _wedding!.partner2 = p2Ctrl.text.trim();
+                _wedding!.dateStr = dateCtrl.text.trim();
+                _wedding!.timeStr = timeCtrl.text.trim();
+                _wedding!.churchAddress = churchCtrl.text.trim();
+                _wedding!.venueAddress = venueCtrl.text.trim();
               });
 
               Navigator.pop(dialogContext);
 
-              await StorageService.saveActiveWedding(_wedding!);
+              // Skriv ändringarna live till Supabase
               await StorageService.saveNewWeddingToList(_wedding!);
+              await StorageService.saveActiveWedding(_wedding!);
+              _loadWeddingData();
             },
             child: const Text('Spara'),
           )

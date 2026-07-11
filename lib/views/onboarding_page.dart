@@ -1,7 +1,7 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import '../models/wedding_model.dart';
-import '../models/guest_model.dart'; // FIX: Importera gästmodellen för att ta bort typfelen
+import '../models/guest_model.dart'; 
 import '../services/storage_service.dart';
 import 'landing_page.dart';
 
@@ -24,18 +24,19 @@ class _OnboardingPageState extends State<OnboardingPage> {
   final _venueController = TextEditingController();
   
   bool _isConnecting = false;
-  List<Wedding> _localWeddings = [];
+  List<Wedding> _cloudWeddings = [];
+  bool _isLoading = false;
 
   @override
   void initState() {
     super.initState();
-    _loadLocalWeddings();
+    _loadCloudWeddings();
   }
 
-  void _loadLocalWeddings() async {
+  void _loadCloudWeddings() async {
     final weddings = await StorageService.getAllLocalWeddings();
     setState(() {
-      _localWeddings = weddings;
+      _cloudWeddings = weddings;
     });
   }
 
@@ -52,7 +53,9 @@ class _OnboardingPageState extends State<OnboardingPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Välkommen till Bröllopsplaneraren')),
-      body: Center(
+      body: _isLoading 
+        ? const Center(child: CircularProgressIndicator())
+        : Center(
         child: Container(
           constraints: const BoxConstraints(maxWidth: 500),
           padding: const EdgeInsets.all(24.0),
@@ -70,7 +73,6 @@ class _OnboardingPageState extends State<OnboardingPage> {
                     decoration: InputDecoration(
                       labelText: 'Bröllopskod', 
                       border: const OutlineInputBorder(),
-                      // FIX: Linter-safe måsvingar blockerar 'curly_braces_in_flow_control_structures'
                       suffixIcon: !_isConnecting 
                         ? IconButton(
                             icon: const Icon(Icons.flash_on, color: Colors.amber),
@@ -83,10 +85,10 @@ class _OnboardingPageState extends State<OnboardingPage> {
                       if (value == null || value.isEmpty) return 'Ange eller generera en kod.';
                       final cleanCode = value.trim();
                       
-                      if (_isConnecting && !_localWeddings.any((w) => w.code == cleanCode)) {
-                        return 'Koden matchar inga aktiva bröllop.';
+                      if (_isConnecting && !_cloudWeddings.any((w) => w.code == cleanCode)) {
+                        return 'Koden matchar inga aktiva bröllop i molnet.';
                       }
-                      if (!_isConnecting && _localWeddings.any((w) => w.code == cleanCode)) {
+                      if (!_isConnecting && _cloudWeddings.any((w) => w.code == cleanCode)) {
                         return 'Koden är upptagen. Detta bröllop finns redan!';
                       }
                       return null;
@@ -169,58 +171,72 @@ class _OnboardingPageState extends State<OnboardingPage> {
 
   void _submit() async {
     if (_formKey.currentState!.validate()) {
+      setState(() => _isLoading = true);
       final enteredCode = _codeController.text.trim();
       Wedding activeWedding;
 
-      if (_isConnecting) {
-        activeWedding = _localWeddings.firstWhere((w) => w.code == enteredCode);
-      } else {
-        activeWedding = Wedding(
-          id: DateTime.now().millisecondsSinceEpoch.toString(),
-          partner1: _p1Controller.text.trim(),
-          partner2: _p2Controller.text.trim(),
-          dateStr: _dateController.text.isEmpty ? 'Ej satt' : _dateController.text.trim(),
-          timeStr: _timeController.text.isEmpty ? 'Ej satt' : _timeController.text.trim(),
-          code: enteredCode,
-          estimatedGuests: _guestsController.text,
-          churchAddress: _churchController.text,
-          venueAddress: _venueController.text,
-        );
-        await StorageService.saveNewWeddingToList(activeWedding);
+      try {
+        if (_isConnecting) {
+          final fetched = await StorageService.getWeddingFromCloud(enteredCode);
+          if (fetched == null) return;
+          activeWedding = fetched;
+        } else {
+          final tempWedding = Wedding(
+            id: DateTime.now().millisecondsSinceEpoch.toString(),
+            partner1: _p1Controller.text.trim(),
+            partner2: _p2Controller.text.trim(),
+            dateStr: _dateController.text.isEmpty ? 'Ej satt' : _dateController.text.trim(),
+            timeStr: _timeController.text.isEmpty ? 'Ej satt' : _timeController.text.trim(),
+            code: enteredCode,
+            estimatedGuests: _guestsController.text,
+            churchAddress: _churchController.text,
+            venueAddress: _venueController.text,
+          );
+          
+          // 1. Spara i molnet och tilldela direkt det uppdaterade objektet (med UUID) till activeWedding!
+          activeWedding = await StorageService.saveNewWeddingToList(tempWedding);
 
-        final brideId = 'bride-${activeWedding.id}';
-        final groomId = 'groom-${activeWedding.id}';
+          // 2. Nu är activeWedding.id garanterat ett äkta UUID
+          final brideId = 'bride-${activeWedding.id}';
+          final groomId = 'groom-${activeWedding.id}';
 
-        // Skapa brudparet med en inbördes partner-relation direkt!
-        List<Guest> defaultPair = [
-          Guest(
-            id: brideId,
-            firstName: _p1Controller.text.trim(),
-            lastName: '(Värd)',
-            title: GuestTitle.bride,
-            isLocked: true,
-            tableId: '1',
-          )..relations[groomId] = RelationType.partner, // Bruden är partner med brudgummen
-          Guest(
-            id: groomId,
-            firstName: _p2Controller.text.trim(),
-            lastName: '(Värd)',
-            title: GuestTitle.groom,
-            isLocked: true,
-            tableId: '1',
-          )..relations[brideId] = RelationType.partner, // Brudgummen är partner med bruden
-        ];
+          List<Guest> defaultPair = [
+            Guest(
+              id: brideId,
+              firstName: _p1Controller.text.trim(),
+              lastName: '(Värd)',
+              title: GuestTitle.bride,
+              isLocked: true,
+              tableId: '1',
+            )..relations[groomId] = RelationType.partner,
+            Guest(
+              id: groomId,
+              firstName: _p2Controller.text.trim(),
+              lastName: '(Värd)',
+              title: GuestTitle.groom,
+              isLocked: true,
+              tableId: '1',
+            )..relations[brideId] = RelationType.partner,
+          ];
+          
+          // 3. Spara gästerna länkade till det korrekta UUID-formatet
+          await StorageService.saveGuests(activeWedding.id, defaultPair);
+        }
+
+        // Spara sessionen lokalt
+        await StorageService.saveActiveWedding(activeWedding);
         
-        await StorageService.saveGuests(activeWedding.id, defaultPair);
+        if (!mounted) return;
+        Navigator.pushReplacement(
+          context, 
+          MaterialPageRoute(builder: (context) => const LandingPage()),
+        );
+      } catch (e) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ett fel uppstod vid kommunikation med databasen: $e'))
+        );
       }
-
-      await StorageService.saveActiveWedding(activeWedding);
-      
-      if (!mounted) return;
-      Navigator.pushReplacement(
-        context, 
-        MaterialPageRoute(builder: (context) => const LandingPage()),
-      );
     }
   }
 }

@@ -16,7 +16,7 @@ class _GuestListPageState extends State<GuestListPage> {
   Wedding? _activeWedding;
   List<Guest> guests = [];
   bool _isLoading = true;
-  
+
   String _searchQuery = '';
   GuestTitle? _selectedTitleFilter;
   bool _filterOnlyDiet = false;
@@ -47,12 +47,22 @@ class _GuestListPageState extends State<GuestListPage> {
 
   void _openGuestFormDialog({Guest? guestToEdit}) {
     final isEditing = guestToEdit != null;
-    
-    final firstNameCtrl = TextEditingController(text: isEditing ? guestToEdit.firstName : '');
-    final lastNameCtrl = TextEditingController(text: isEditing ? guestToEdit.lastName : '');
-    final emailCtrl = TextEditingController(text: isEditing ? guestToEdit.email : '');
-    final phoneCtrl = TextEditingController(text: isEditing ? guestToEdit.phoneNumber : '');
-    final dietCtrl = TextEditingController(text: isEditing ? guestToEdit.dietaryRestrictions : '');
+
+    final firstNameCtrl = TextEditingController(
+      text: isEditing ? guestToEdit.firstName : '',
+    );
+    final lastNameCtrl = TextEditingController(
+      text: isEditing ? guestToEdit.lastName : '',
+    );
+    final emailCtrl = TextEditingController(
+      text: isEditing ? guestToEdit.email : '',
+    );
+    final phoneCtrl = TextEditingController(
+      text: isEditing ? guestToEdit.phoneNumber : '',
+    );
+    final dietCtrl = TextEditingController(
+      text: isEditing ? guestToEdit.dietaryRestrictions : '',
+    );
     GuestTitle selectedTitle = isEditing ? guestToEdit.title : GuestTitle.none;
 
     bool isDuplicate = false;
@@ -63,15 +73,19 @@ class _GuestListPageState extends State<GuestListPage> {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             void checkDuplicate() {
-              final newFullName = '${firstNameCtrl.text.trim().toLowerCase()} ${lastNameCtrl.text.trim().toLowerCase()}';
+              final newFullName =
+                  '${firstNameCtrl.text.trim().toLowerCase()} ${lastNameCtrl.text.trim().toLowerCase()}';
               bool duplicateFound = guests.any((g) {
                 if (isEditing && g.id == guestToEdit.id) return false;
-                return '${g.firstName.toLowerCase()} ${g.lastName.toLowerCase()}' == newFullName;
+                return '${g.firstName.toLowerCase()} ${g.lastName.toLowerCase()}' ==
+                    newFullName;
               });
               setDialogState(() => isDuplicate = duplicateFound);
             }
 
-            final bool isFieldsEmpty = firstNameCtrl.text.trim().isEmpty || lastNameCtrl.text.trim().isEmpty;
+            final bool isFieldsEmpty =
+                firstNameCtrl.text.trim().isEmpty ||
+                lastNameCtrl.text.trim().isEmpty;
 
             return AlertDialog(
               title: Text(isEditing ? 'Redigera person' : 'Lägg till gäst'),
@@ -79,60 +93,134 @@ class _GuestListPageState extends State<GuestListPage> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    TextField(controller: firstNameCtrl, decoration: const InputDecoration(labelText: 'Förnamn *'), onChanged: (_) => checkDuplicate()),
-                    TextField(controller: lastNameCtrl, decoration: const InputDecoration(labelText: 'Efternamn *'), onChanged: (_) => checkDuplicate()),
-                    TextField(controller: emailCtrl, decoration: const InputDecoration(labelText: 'E-post (Frivilligt)')),
-                    TextField(controller: phoneCtrl, decoration: const InputDecoration(labelText: 'Telefonnummer (Frivilligt)')),
-                    TextField(controller: dietCtrl, decoration: const InputDecoration(labelText: 'Specialkost/Allergier (Frivilligt)')),
+                    TextField(
+                      controller: firstNameCtrl,
+                      decoration: const InputDecoration(labelText: 'Förnamn *'),
+                      onChanged: (_) => checkDuplicate(),
+                    ),
+                    TextField(
+                      controller: lastNameCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Efternamn *',
+                      ),
+                      onChanged: (_) => checkDuplicate(),
+                    ),
+                    TextField(
+                      controller: emailCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'E-post (Frivilligt)',
+                      ),
+                    ),
+                    TextField(
+                      controller: phoneCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Telefonnummer (Frivilligt)',
+                      ),
+                    ),
+                    TextField(
+                      controller: dietCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Specialkost/Allergier (Frivilligt)',
+                      ),
+                    ),
                     const SizedBox(height: 16),
                     DropdownButtonFormField<GuestTitle>(
                       initialValue: selectedTitle,
-                      decoration: const InputDecoration(labelText: 'Titel/Roll'),
-                      items: GuestTitle.values.map((title) => DropdownMenuItem(value: title, child: Text(title.name))).toList(),
-                      onChanged: (value) { if (value != null) setDialogState(() => selectedTitle = value); },
+                      decoration: const InputDecoration(
+                        labelText: 'Titel/Roll',
+                      ),
+                      items: GuestTitle.values
+                          .map(
+                            (title) => DropdownMenuItem(
+                              value: title,
+                              child: Text(title.name),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (value) {
+                        if (value != null) {
+                          setDialogState(() => selectedTitle = value);
+                        }
+                      },
                     ),
                     if (isDuplicate) ...[
                       const SizedBox(height: 12),
-                      const Text('Denna person finns redan i listan.', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold, fontSize: 13)),
+                      const Text(
+                        'Denna person finns redan i listan.',
+                        style: TextStyle(
+                          color: Colors.red,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                        ),
+                      ),
                     ],
                   ],
                 ),
               ),
               actions: [
-                TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Avbryt')),
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('Avbryt'),
+                ),
                 ElevatedButton(
-                  onPressed: (isDuplicate || isFieldsEmpty) ? null : () {
-                    setState(() {
-                      if (isEditing) {
-                        guestToEdit.firstName = firstNameCtrl.text.trim();
-                        guestToEdit.lastName = lastNameCtrl.text.trim();
-                        guestToEdit.email = emailCtrl.text.trim().isEmpty ? null : emailCtrl.text.trim();
-                        guestToEdit.phoneNumber = phoneCtrl.text.trim().isEmpty ? null : phoneCtrl.text.trim();
-                        guestToEdit.dietaryRestrictions = dietCtrl.text.trim().isEmpty ? null : dietCtrl.text.trim();
-                        guestToEdit.title = selectedTitle;
-                      } else {
-                        final newGuest = Guest(
-                          id: DateTime.now().millisecondsSinceEpoch.toString(),
-                          firstName: firstNameCtrl.text.trim(),
-                          lastName: lastNameCtrl.text.trim(),
-                          email: emailCtrl.text.trim().isEmpty ? null : emailCtrl.text.trim(),
-                          phoneNumber: phoneCtrl.text.trim().isEmpty ? null : phoneCtrl.text.trim(),
-                          dietaryRestrictions: dietCtrl.text.trim().isEmpty ? null : dietCtrl.text.trim(),
-                          title: selectedTitle,
-                        );
+                  onPressed: (isDuplicate || isFieldsEmpty)
+                      ? null
+                      : () {
+                          setState(() {
+                            if (isEditing) {
+                              guestToEdit.firstName = firstNameCtrl.text.trim();
+                              guestToEdit.lastName = lastNameCtrl.text.trim();
+                              guestToEdit.email = emailCtrl.text.trim().isEmpty
+                                  ? null
+                                  : emailCtrl.text.trim();
+                              guestToEdit.phoneNumber =
+                                  phoneCtrl.text.trim().isEmpty
+                                  ? null
+                                  : phoneCtrl.text.trim();
+                              guestToEdit.dietaryRestrictions =
+                                  dietCtrl.text.trim().isEmpty
+                                  ? null
+                                  : dietCtrl.text.trim();
+                              guestToEdit.title = selectedTitle;
+                            } else {
+                              final newGuest = Guest(
+                                id: DateTime.now().millisecondsSinceEpoch
+                                    .toString(),
+                                firstName: firstNameCtrl.text.trim(),
+                                lastName: lastNameCtrl.text.trim(),
+                                email: emailCtrl.text.trim().isEmpty
+                                    ? null
+                                    : emailCtrl.text.trim(),
+                                phoneNumber: phoneCtrl.text.trim().isEmpty
+                                    ? null
+                                    : phoneCtrl.text.trim(),
+                                dietaryRestrictions:
+                                    dietCtrl.text.trim().isEmpty
+                                    ? null
+                                    : dietCtrl.text.trim(),
+                                title: selectedTitle,
+                              );
 
-                        final hosts = guests.where((g) => g.title == GuestTitle.bride || g.title == GuestTitle.groom).toList();
-                        for (var host in hosts) {
-                          newGuest.relations[host.id] = RelationType.friend;
-                          host.relations[newGuest.id] = RelationType.friend;
-                        }
+                              final hosts = guests
+                                  .where(
+                                    (g) =>
+                                        g.title == GuestTitle.bride ||
+                                        g.title == GuestTitle.groom,
+                                  )
+                                  .toList();
+                              for (var host in hosts) {
+                                newGuest.relations[host.id] =
+                                    RelationType.friend;
+                                host.relations[newGuest.id] =
+                                    RelationType.friend;
+                              }
 
-                        guests.add(newGuest);
-                      }
-                    });
-                    _syncToStorage();
-                    Navigator.pop(dialogContext);
-                  },
+                              guests.add(newGuest);
+                            }
+                          });
+                          _syncToStorage();
+                          Navigator.pop(dialogContext);
+                        },
                   child: Text(isEditing ? 'Spara' : 'Lägg till'),
                 ),
               ],
@@ -146,7 +234,11 @@ class _GuestListPageState extends State<GuestListPage> {
   void _confirmDeleteDialog(Guest guest) {
     if (guest.title == GuestTitle.bride || guest.title == GuestTitle.groom) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Värdarna (Brudparet) kan inte raderas från sitt eget bröllop!')),
+        const SnackBar(
+          content: Text(
+            'Värdarna (Brudparet) kan inte raderas från sitt eget bröllop!',
+          ),
+        ),
       );
       return;
     }
@@ -157,7 +249,10 @@ class _GuestListPageState extends State<GuestListPage> {
         title: const Text('Ta bort gäst?'),
         content: Text('Är du säker på att du vill ta bort ${guest.fullName}?'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Avbryt')),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Avbryt'),
+          ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () {
@@ -179,15 +274,27 @@ class _GuestListPageState extends State<GuestListPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    if (_isLoading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
 
-    final hostCount = guests.where((g) => g.title == GuestTitle.bride || g.title == GuestTitle.groom).length;
+    final hostCount = guests
+        .where(
+          (g) => g.title == GuestTitle.bride || g.title == GuestTitle.groom,
+        )
+        .length;
     final guestCount = guests.length - hostCount;
 
     final filteredGuests = guests.where((guest) {
-      final matchesSearch = guest.fullName.toLowerCase().contains(_searchQuery.toLowerCase());
-      final matchesTitle = _selectedTitleFilter == null || guest.title == _selectedTitleFilter;
-      final matchesDiet = !_filterOnlyDiet || (guest.dietaryRestrictions != null && guest.dietaryRestrictions!.isNotEmpty);
+      final matchesSearch = guest.fullName.toLowerCase().contains(
+        _searchQuery.toLowerCase(),
+      );
+      final matchesTitle =
+          _selectedTitleFilter == null || guest.title == _selectedTitleFilter;
+      final matchesDiet =
+          !_filterOnlyDiet ||
+          (guest.dietaryRestrictions != null &&
+              guest.dietaryRestrictions!.isNotEmpty);
       return matchesSearch && matchesTitle && matchesDiet;
     }).toList();
 
@@ -202,12 +309,18 @@ class _GuestListPageState extends State<GuestListPage> {
               if (_activeWedding != null) {
                 // Spara undan ScaffoldMessengerState synkront innan det asynkrona gapet
                 final messenger = ScaffoldMessenger.of(context);
-                final jsonStr = await StorageService.exportWeddingToClipboard(_activeWedding!.id);
+                final jsonStr = await StorageService.exportWeddingToClipboard(
+                  _activeWedding!.id,
+                );
                 await Clipboard.setData(ClipboardData(text: jsonStr));
-                
+
                 // Använd den sparade referensen istället för att läsa BuildContext efter await
                 messenger.showSnackBar(
-                  const SnackBar(content: Text('🚀 Hela bröllopsdatan har kopierats till urklipp! Skicka texten till din partner.')),
+                  const SnackBar(
+                    content: Text(
+                      '🚀 Hela bröllopsdatan har kopierats till urklipp! Skicka texten till din partner.',
+                    ),
+                  ),
                 );
               }
             },
@@ -225,37 +338,50 @@ class _GuestListPageState extends State<GuestListPage> {
                     controller: importController,
                     maxLines: 6,
                     decoration: const InputDecoration(
-                      hintText: 'Klistra in JSON-koden du fick från din partner här...',
+                      hintText:
+                          'Klistra in JSON-koden du fick från din partner här...',
                       border: OutlineInputBorder(),
                     ),
                   ),
                   actions: [
-                    TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Avbryt')),
+                    TextButton(
+                      onPressed: () => Navigator.pop(dialogContext),
+                      child: const Text('Avbryt'),
+                    ),
                     ElevatedButton(
                       onPressed: () async {
                         final text = importController.text.trim();
                         if (text.isEmpty) return;
-                        
+
                         // Spara undan navigeringstillsyner och meddelandepaneler synkront
                         final navigator = Navigator.of(dialogContext);
                         final messenger = ScaffoldMessenger.of(context);
 
                         try {
                           await StorageService.importWeddingFromJson(text);
-                          
+
                           // Stäng dialogen direkt via den sparade synkrona referensen
                           navigator.pop();
-                          
+
                           // Ladda om statet för komponenten
-                          _loadData(); 
-                          
+                          _loadData();
+
                           messenger.showSnackBar(
-                            const SnackBar(content: Text('🎉 Lyckad import! Allt är synkat.')),
+                            const SnackBar(
+                              content: Text(
+                                '🎉 Lyckad import! Allt är synkat.',
+                              ),
+                            ),
                           );
                         } catch (e) {
                           // Om importen kraschar stänger vi inte dialogrutan utan visar bara felmeddelande
                           messenger.showSnackBar(
-                            const SnackBar(backgroundColor: Colors.red, content: Text('⚠️ Felaktig kod. Kunde inte läsa datan.')),
+                            const SnackBar(
+                              backgroundColor: Colors.red,
+                              content: Text(
+                                '⚠️ Felaktig kod. Kunde inte läsa datan.',
+                              ),
+                            ),
                           );
                         }
                       },
@@ -268,8 +394,13 @@ class _GuestListPageState extends State<GuestListPage> {
           ),
           IconButton(
             icon: const Icon(Icons.chair_alt),
-            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => SeatingChartPage(guests: guests))),
-          )
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => SeatingChartPage(guests: guests),
+              ),
+            ),
+          ),
         ],
       ),
       body: Column(
@@ -282,7 +413,10 @@ class _GuestListPageState extends State<GuestListPage> {
                 child: Column(
                   children: [
                     TextField(
-                      decoration: const InputDecoration(labelText: 'Sök i listan...', prefixIcon: Icon(Icons.search)),
+                      decoration: const InputDecoration(
+                        labelText: 'Sök i listan...',
+                        prefixIcon: Icon(Icons.search),
+                      ),
                       onChanged: (val) => setState(() => _searchQuery = val),
                     ),
                     Row(
@@ -293,20 +427,30 @@ class _GuestListPageState extends State<GuestListPage> {
                             value: _selectedTitleFilter,
                             isExpanded: true,
                             items: [
-                              const DropdownMenuItem(value: null, child: Text('Alla roller')),
-                              ...GuestTitle.values.map((t) => DropdownMenuItem(value: t, child: Text(t.name)))
+                              const DropdownMenuItem(
+                                value: null,
+                                child: Text('Alla roller'),
+                              ),
+                              ...GuestTitle.values.map(
+                                (t) => DropdownMenuItem(
+                                  value: t,
+                                  child: Text(t.name),
+                                ),
+                              ),
                             ],
-                            onChanged: (val) => setState(() => _selectedTitleFilter = val),
+                            onChanged: (val) =>
+                                setState(() => _selectedTitleFilter = val),
                           ),
                         ),
                         const SizedBox(width: 16),
                         FilterChip(
                           label: const Text('Bara specialkost'),
                           selected: _filterOnlyDiet,
-                          onSelected: (val) => setState(() => _filterOnlyDiet = val),
-                        )
+                          onSelected: (val) =>
+                              setState(() => _filterOnlyDiet = val),
+                        ),
                       ],
-                    )
+                    ),
                   ],
                 ),
               ),
@@ -319,19 +463,52 @@ class _GuestListPageState extends State<GuestListPage> {
                     itemCount: filteredGuests.length,
                     itemBuilder: (context, index) {
                       final guest = filteredGuests[index];
-                      final isHost = guest.title == GuestTitle.bride || guest.title == GuestTitle.groom;
-                      
-                      return ListTile(
-                        tileColor: isHost ? Colors.pink[50] : null,
-                        title: Text(guest.fullName, style: TextStyle(fontWeight: isHost ? FontWeight.bold : FontWeight.normal)),
-                        subtitle: Text('Roll: ${guest.title.name} • Kost: ${guest.dietaryRestrictions ?? "Ingen"} • Relationer: ${guest.relations.length}'),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(icon: const Icon(Icons.people_alt_outlined, color: Colors.blue), onPressed: () => _manageRelationsDialog(guest)),
-                            IconButton(icon: const Icon(Icons.edit, color: Colors.orange), onPressed: () => _openGuestFormDialog(guestToEdit: guest)),
-                            IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: () => _confirmDeleteDialog(guest)),
-                          ],
+                      final isHost =
+                          guest.title == GuestTitle.bride ||
+                          guest.title == GuestTitle.groom;
+
+                      return Material(
+                        type: MaterialType.transparency,
+                        child: ListTile(
+                          tileColor: isHost ? Colors.pink[50] : null,
+                          title: Text(
+                            guest.fullName,
+                            style: TextStyle(
+                              fontWeight: isHost
+                                  ? FontWeight.bold
+                                  : FontWeight.normal,
+                            ),
+                          ),
+                          subtitle: Text(
+                            'Roll: ${guest.title.name} • Kost: ${guest.dietaryRestrictions ?? "Ingen"} • Relationer: ${guest.relations.length}',
+                          ),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: const Icon(
+                                  Icons.people_alt_outlined,
+                                  color: Colors.blue,
+                                ),
+                                onPressed: () => _manageRelationsDialog(guest),
+                              ),
+                              IconButton(
+                                icon: const Icon(
+                                  Icons.edit,
+                                  color: Colors.orange,
+                                ),
+                                onPressed: () =>
+                                    _openGuestFormDialog(guestToEdit: guest),
+                              ),
+                              IconButton(
+                                icon: const Icon(
+                                  Icons.delete,
+                                  color: Colors.red,
+                                ),
+                                onPressed: () => _confirmDeleteDialog(guest),
+                              ),
+                            ],
+                          ),
                         ),
                       );
                     },
@@ -352,7 +529,9 @@ class _GuestListPageState extends State<GuestListPage> {
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            final otherGuests = guests.where((g) => g.id != currentGuest.id).toList();
+            final otherGuests = guests
+                .where((g) => g.id != currentGuest.id)
+                .toList();
             return AlertDialog(
               title: Text('Vem känner ${currentGuest.firstName}?'),
               content: SizedBox(
@@ -364,14 +543,22 @@ class _GuestListPageState extends State<GuestListPage> {
                         itemCount: otherGuests.length,
                         itemBuilder: (context, i) {
                           final other = otherGuests[i];
-                          final currentRelationType = currentGuest.relations[other.id];
+                          final currentRelationType =
+                              currentGuest.relations[other.id];
 
                           return ListTile(
                             title: Text(other.fullName),
                             trailing: DropdownButton<RelationType>(
                               hint: const Text('Välj relation'),
                               value: currentRelationType,
-                              items: RelationType.values.map((type) => DropdownMenuItem(value: type, child: Text(type.name))).toList(),
+                              items: RelationType.values
+                                  .map(
+                                    (type) => DropdownMenuItem(
+                                      value: type,
+                                      child: Text(type.name),
+                                    ),
+                                  )
+                                  .toList(),
                               onChanged: (type) {
                                 setState(() {
                                   setDialogState(() {
@@ -388,7 +575,12 @@ class _GuestListPageState extends State<GuestListPage> {
                         },
                       ),
               ),
-              actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Klar'))],
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Klar'),
+                ),
+              ],
             );
           },
         );

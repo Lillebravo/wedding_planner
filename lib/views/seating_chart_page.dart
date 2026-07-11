@@ -204,12 +204,18 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
                           itemCount: currentAssigned.length,
                           itemBuilder: (context, idx) {
                             final g = currentAssigned[idx];
-                            return ListTile(
-                              title: Text(g.fullName),
-                              dense: true,
-                              trailing: IconButton(
-                                icon: const Icon(Icons.remove_circle, color: Colors.red),
-                                onPressed: () => setDialogState(() => currentAssigned.remove(g)),
+                            return Container(
+                              decoration: BoxDecoration(
+                                border: Border.all(color: Colors.grey),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: ListTile(
+                                title: Text(g.fullName),
+                                dense: true,
+                                trailing: IconButton(
+                                  icon: const Icon(Icons.remove_circle, color: Colors.red),
+                                  onPressed: () => setDialogState(() => currentAssigned.remove(g)),
+                                ),
                               ),
                             );
                           },
