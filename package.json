@@ -1,0 +1,30 @@
+{
+  "name": "wedding_planner",
+  "version": "1.0.0",
+  "description": "Ett skräddarsytt multiplattformsverktyg utvecklat i **Flutter** för att underlätta bröllopsplanering. Applikationen automatiserar bordsplacering baserat på sociala relationer och fungerar som en interaktiv gästportal på bröllopsdagen.",
+  "main": "index.js",
+  "directories": {
+    "lib": "lib",
+    "test": "test"
+  },
+  "scripts": {
+    "build:web": "flutter build web --base-href /wedding_planner/",
+    "deploy": "node -e \"require('fs').rmSync('node_modules/.cache/gh-pages',{recursive:true,force:true})\" && gh-pages -d build/web",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Lillebravo/wedding_planner.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Lillebravo/wedding_planner/issues"
+  },
+  "homepage": "https://github.com/Lillebravo/wedding_planner#readme",
+  "devDependencies": {
+    "gh-pages": "^6.3.0"
+  }
+}
