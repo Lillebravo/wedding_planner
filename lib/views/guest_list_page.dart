@@ -278,6 +278,8 @@ class _GuestListPageState extends State<GuestListPage> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
+    final isCompact = MediaQuery.of(context).size.width < 700;
+
     final hostCount = guests
         .where(
           (g) => g.title == GuestTitle.bride || g.title == GuestTitle.groom,
@@ -427,10 +429,13 @@ class _GuestListPageState extends State<GuestListPage> {
                       ),
                       onChanged: (val) => setState(() => _searchQuery = val),
                     ),
-                    Row(
+                    const SizedBox(height: 8),
+                    Flex(
+                      direction: isCompact ? Axis.vertical : Axis.horizontal,
+                      crossAxisAlignment: isCompact ? CrossAxisAlignment.stretch : CrossAxisAlignment.center,
                       children: [
-                        Expanded(
-                          child: DropdownButton<GuestTitle>(
+                        if (isCompact)
+                          DropdownButton<GuestTitle>(
                             hint: const Text('Filtrera på titel'),
                             value: _selectedTitleFilter,
                             isExpanded: true,
@@ -448,14 +453,38 @@ class _GuestListPageState extends State<GuestListPage> {
                             ],
                             onChanged: (val) =>
                                 setState(() => _selectedTitleFilter = val),
+                          )
+                        else
+                          Expanded(
+                            child: DropdownButton<GuestTitle>(
+                              hint: const Text('Filtrera på titel'),
+                              value: _selectedTitleFilter,
+                              isExpanded: true,
+                              items: [
+                                const DropdownMenuItem(
+                                  value: null,
+                                  child: Text('Alla roller'),
+                                ),
+                                ...GuestTitle.values.map(
+                                  (t) => DropdownMenuItem(
+                                    value: t,
+                                    child: Text(t.name),
+                                  ),
+                                ),
+                              ],
+                              onChanged: (val) =>
+                                  setState(() => _selectedTitleFilter = val),
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 16),
-                        FilterChip(
-                          label: const Text('Bara specialkost'),
-                          selected: _filterOnlyDiet,
-                          onSelected: (val) =>
-                              setState(() => _filterOnlyDiet = val),
+                        SizedBox(width: isCompact ? 0 : 16, height: isCompact ? 8 : 0),
+                        Align(
+                          alignment: isCompact ? Alignment.centerLeft : Alignment.center,
+                          child: FilterChip(
+                            label: const Text('Bara specialkost'),
+                            selected: _filterOnlyDiet,
+                            onSelected: (val) =>
+                                setState(() => _filterOnlyDiet = val),
+                          ),
                         ),
                       ],
                     ),
@@ -468,6 +497,7 @@ class _GuestListPageState extends State<GuestListPage> {
             child: filteredGuests.isEmpty
                 ? const Center(child: Text('Inga träffar.'))
                 : ListView.builder(
+                  padding: EdgeInsets.only(bottom: isCompact ? 88 : 72),
                     itemCount: filteredGuests.length,
                     itemBuilder: (context, index) {
                       final guest = filteredGuests[index];
@@ -490,33 +520,63 @@ class _GuestListPageState extends State<GuestListPage> {
                           subtitle: Text(
                             'Roll: ${guest.title.name} • Kost: ${guest.dietaryRestrictions ?? "Ingen"} • Relationer: ${guest.relations.length}',
                           ),
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                icon: const Icon(
-                                  Icons.people_alt_outlined,
-                                  color: Colors.blue,
+                          trailing: isCompact
+                              ? PopupMenuButton<String>(
+                                  onSelected: (value) {
+                                    switch (value) {
+                                      case 'relations':
+                                        _manageRelationsDialog(guest);
+                                        break;
+                                      case 'edit':
+                                        _openGuestFormDialog(guestToEdit: guest);
+                                        break;
+                                      case 'delete':
+                                        _confirmDeleteDialog(guest);
+                                        break;
+                                    }
+                                  },
+                                  itemBuilder: (context) => const [
+                                    PopupMenuItem(
+                                      value: 'relations',
+                                      child: Text('Hantera relationer'),
+                                    ),
+                                    PopupMenuItem(
+                                      value: 'edit',
+                                      child: Text('Redigera'),
+                                    ),
+                                    PopupMenuItem(
+                                      value: 'delete',
+                                      child: Text('Ta bort'),
+                                    ),
+                                  ],
+                                )
+                              : Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      icon: const Icon(
+                                        Icons.people_alt_outlined,
+                                        color: Colors.blue,
+                                      ),
+                                      onPressed: () => _manageRelationsDialog(guest),
+                                    ),
+                                    IconButton(
+                                      icon: const Icon(
+                                        Icons.edit,
+                                        color: Colors.orange,
+                                      ),
+                                      onPressed: () =>
+                                          _openGuestFormDialog(guestToEdit: guest),
+                                    ),
+                                    IconButton(
+                                      icon: const Icon(
+                                        Icons.delete,
+                                        color: Colors.red,
+                                      ),
+                                      onPressed: () => _confirmDeleteDialog(guest),
+                                    ),
+                                  ],
                                 ),
-                                onPressed: () => _manageRelationsDialog(guest),
-                              ),
-                              IconButton(
-                                icon: const Icon(
-                                  Icons.edit,
-                                  color: Colors.orange,
-                                ),
-                                onPressed: () =>
-                                    _openGuestFormDialog(guestToEdit: guest),
-                              ),
-                              IconButton(
-                                icon: const Icon(
-                                  Icons.delete,
-                                  color: Colors.red,
-                                ),
-                                onPressed: () => _confirmDeleteDialog(guest),
-                              ),
-                            ],
-                          ),
                         ),
                       );
                     },
@@ -524,9 +584,16 @@ class _GuestListPageState extends State<GuestListPage> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _openGuestFormDialog(),
-        child: const Icon(Icons.add),
+      floatingActionButton: SafeArea(
+        child: isCompact
+            ? FloatingActionButton.small(
+                onPressed: () => _openGuestFormDialog(),
+                child: const Icon(Icons.add),
+              )
+            : FloatingActionButton(
+                onPressed: () => _openGuestFormDialog(),
+                child: const Icon(Icons.add),
+              ),
       ),
     );
   }

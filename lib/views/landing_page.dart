@@ -398,11 +398,23 @@ class _LandingPageState extends State<LandingPage> {
       return const OnboardingPage();
     }
 
+    final screenWidth = MediaQuery.of(context).size.width;
+    final expandedHeight = screenWidth < 600
+        ? 260.0
+        : screenWidth < 1100
+            ? 320.0
+            : 360.0;
+    final coverMaxWidth = screenWidth < 700
+        ? screenWidth
+        : screenWidth < 1400
+            ? screenWidth * 0.88
+            : 1100.0;
+
     return Scaffold(
       body: CustomScrollView(
         slivers: [
           SliverAppBar(
-            expandedHeight: 250.0,
+            expandedHeight: expandedHeight,
             floating: false,
             pinned: true,
             actions: [
@@ -424,9 +436,25 @@ class _LandingPageState extends State<LandingPage> {
               background: Stack(
                 fit: StackFit.expand,
                 children: [
-                  _wedding!.coverImageUrl != null
-                      ? Image.network(_wedding!.coverImageUrl!, fit: BoxFit.cover)
-                      : Container(color: Colors.pink[100], child: const Icon(Icons.favorite, size: 80, color: Colors.white)),
+                  Container(color: Colors.pink[50]),
+                  Center(
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(maxWidth: coverMaxWidth),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        child: _wedding!.coverImageUrl != null
+                            ? Image.network(
+                                _wedding!.coverImageUrl!,
+                                fit: BoxFit.contain,
+                                alignment: Alignment.center,
+                              )
+                            : Container(
+                                color: Colors.pink[100],
+                                child: const Icon(Icons.favorite, size: 80, color: Colors.white),
+                              ),
+                      ),
+                    ),
+                  ),
                   Container(
                     decoration: const BoxDecoration(
                       gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Colors.transparent, Colors.black54]),

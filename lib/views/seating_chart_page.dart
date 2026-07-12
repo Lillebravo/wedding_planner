@@ -410,243 +410,276 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
     );
   }
 
+  Widget _buildTablesPane() {
+    return Container(
+      color: Colors.grey[200],
+      child: tables.isEmpty
+          ? const Center(child: Text('Inga bord skapade.'))
+          : ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: tables.length,
+              itemBuilder: (context, index) {
+                final table = tables[index];
+                final List<Guest> assignedGuests = table['assigned'];
+
+                return DragTarget<Guest>(
+                  onAcceptWithDetails: (details) async {
+                    if (assignedGuests.length >= table['seats']) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Bordet är fullt!')),
+                      );
+                      return;
+                    }
+                    setState(() {
+                      for (var t in tables) {
+                        (t['assigned'] as List<Guest>).remove(details.data);
+                      }
+                      assignedGuests.add(details.data);
+                      _assignGuestToTable(details.data, table, assignedGuests.length);
+                    });
+                    await StorageService.saveGuests(widget.weddingId, widget.guests);
+                  },
+                  builder: (context, candidateData, rejectedData) {
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 16),
+                      color: candidateData.isNotEmpty ? Colors.green[100] : Colors.white,
+                      child: Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    '${table['name']} (${table['shape']} - ${assignedGuests.length}/${table['seats']} stolar)',
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      icon: const Icon(Icons.edit, color: Colors.orange, size: 20),
+                                      onPressed: () => _openTableFormDialog(tableToEdit: table),
+                                    ),
+                                    IconButton(
+                                      icon: const Icon(Icons.delete, color: Colors.red, size: 20),
+                                      onPressed: () => _confirmDeleteTable(table),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                            const Divider(),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: assignedGuests.map((guest) {
+                                return FilterChip(
+                                  avatar: Icon(guest.isLocked ? Icons.lock : Icons.lock_open, size: 16),
+                                  label: Text('${guest.seatNumber}. ${guest.fullName}'),
+                                  selected: guest.isLocked,
+                                  selectedColor: Colors.amber[100],
+                                  backgroundColor: Colors.blue[50],
+                                  showCheckmark: false,
+                                  onSelected: (bool selected) async {
+                                    setState(() => guest.isLocked = selected);
+                                    await StorageService.saveGuests(widget.weddingId, widget.guests);
+                                  },
+                                  onDeleted: () async {
+                                    setState(() {
+                                      assignedGuests.remove(guest);
+                                      guest.tableId = null;
+                                      guest.seatNumber = null;
+                                      for (int i = 0; i < assignedGuests.length; i++) {
+                                        assignedGuests[i].seatNumber = i + 1;
+                                      }
+                                    });
+                                    await StorageService.saveGuests(widget.weddingId, widget.guests);
+                                  },
+                                );
+                              }).toList(),
+                            ),
+                            if (assignedGuests.isEmpty)
+                              const Padding(
+                                padding: EdgeInsets.all(8.0),
+                                child: Text('Dra gäster hit...', style: TextStyle(color: Colors.grey)),
+                              ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+    );
+  }
+
+  Widget _buildUnassignedPane(List<Guest> unassignedGuests, {required bool isCompact}) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: isCompact
+            ? Border(bottom: BorderSide(color: Colors.grey[300]!))
+            : Border(left: BorderSide(color: Colors.grey[300]!)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 16, 16, 4),
+            child: Text('Oplacerade personer', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 4.0),
+            child: TextField(
+              decoration: const InputDecoration(
+                labelText: 'Sök efter namn...',
+                prefixIcon: Icon(Icons.search, size: 20),
+                isDense: true,
+              ),
+              onChanged: (val) => setState(() => _chartSearchQuery = val),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 4.0),
+            child: DropdownButtonFormField<GuestTitle>(
+              initialValue: _chartTitleFilter,
+              decoration: const InputDecoration(labelText: 'Filtrera efter roll'),
+              isExpanded: true,
+              isDense: true,
+              items: [
+                const DropdownMenuItem(value: null, child: Text('Alla roller')),
+                ...GuestTitle.values.map((t) => DropdownMenuItem(value: t, child: Text(t.name))),
+              ],
+              onChanged: (val) => setState(() => _chartTitleFilter = val),
+            ),
+          ),
+          const Divider(height: 16),
+          Expanded(
+            child: Builder(
+              builder: (context) {
+                final menuList = unassignedGuests.where((g) {
+                  final matchesSearch = g.fullName.toLowerCase().contains(_chartSearchQuery.toLowerCase());
+                  final matchesTitle = _chartTitleFilter == null || g.title == _chartTitleFilter;
+                  return matchesSearch && matchesTitle;
+                }).toList();
+
+                if (menuList.isEmpty) {
+                  return const Center(
+                    child: Text('Inga personer matchar.', style: TextStyle(color: Colors.grey)),
+                  );
+                }
+
+                return ListView.builder(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  itemCount: menuList.length,
+                  itemBuilder: (context, index) {
+                    final guest = menuList[index];
+                    final isHost = guest.title == GuestTitle.bride || guest.title == GuestTitle.groom;
+
+                    return Draggable<Guest>(
+                      data: guest,
+                      feedback: Material(
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          color: isHost ? Colors.pink[100] : Colors.blue[100],
+                          child: Text(guest.fullName),
+                        ),
+                      ),
+                      childWhenDragging: ListTile(
+                        title: Text(guest.fullName, style: const TextStyle(color: Colors.grey)),
+                        leading: const Icon(Icons.person, color: Colors.grey),
+                      ),
+                      child: Material(
+                        type: MaterialType.transparency,
+                        child: ListTile(
+                          tileColor: isHost ? Colors.pink[50] : null,
+                          title: Text(
+                            guest.fullName,
+                            style: TextStyle(fontWeight: isHost ? FontWeight.bold : FontWeight.normal),
+                          ),
+                          subtitle: Text(guest.title.name),
+                          leading: const Icon(Icons.drag_indicator),
+                          trailing: IconButton(
+                            icon: Icon(guest.isLocked ? Icons.lock : Icons.lock_open),
+                            onPressed: () async {
+                              setState(() => guest.isLocked = !guest.isLocked);
+                              await StorageService.saveGuests(widget.weddingId, widget.guests);
+                            },
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     List<Guest> unassignedGuests = widget.guests.where((g) {
       return !tables.any((t) => (t['assigned'] as List<Guest>).contains(g));
     }).toList();
 
+    final isCompact = MediaQuery.of(context).size.width < 900;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Bordsplacering'),
         actions: [
-          ElevatedButton.icon(
-            icon: const Icon(Icons.auto_awesome),
-            label: const Text('Autoplacera'),
-            onPressed: _runPlacementAlgorithm,
-          ),
-          const SizedBox(width: 8),
+          if (isCompact)
+            IconButton(
+              icon: const Icon(Icons.auto_awesome),
+              tooltip: 'Autoplacera',
+              onPressed: _runPlacementAlgorithm,
+            )
+          else
+            ElevatedButton.icon(
+              icon: const Icon(Icons.auto_awesome),
+              label: const Text('Autoplacera'),
+              onPressed: _runPlacementAlgorithm,
+            ),
+          if (!isCompact)
+            const SizedBox(width: 8),
           IconButton(
             icon: const Icon(Icons.add_box),
             tooltip: 'Skapa nytt bord',
             onPressed: () => _openTableFormDialog(),
           ),
-          const SizedBox(width: 10),
+          if (!isCompact) const SizedBox(width: 10),
         ],
       ),
-      body: Row(
-        children: [
-          Expanded(
-            flex: 3,
-            child: Container(
-              color: Colors.grey[200],
-              child: tables.isEmpty
-                  ? const Center(child: Text('Inga bord skapade.'))
-                  : ListView.builder(
-                      padding: const EdgeInsets.all(16),
-                      itemCount: tables.length,
-                      itemBuilder: (context, index) {
-                        final table = tables[index];
-                        final List<Guest> assignedGuests = table['assigned'];
-
-                        return DragTarget<Guest>(
-                          onAcceptWithDetails: (details) async {
-                            if (assignedGuests.length >= table['seats']) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('Bordet är fullt!')),
-                              );
-                              return;
-                            }
-                            setState(() {
-                              for (var t in tables) {
-                                (t['assigned'] as List<Guest>).remove(details.data);
-                              }
-                              assignedGuests.add(details.data);
-                              // Sätt seatNumber till det nya indexet
-                              _assignGuestToTable(details.data, table, assignedGuests.length);
-                            });
-                            await StorageService.saveGuests(widget.weddingId, widget.guests);
-                          },
-                          builder: (context, candidateData, rejectedData) {
-                            return Card(
-                              margin: const EdgeInsets.only(bottom: 16),
-                              color: candidateData.isNotEmpty ? Colors.green[100] : Colors.white,
-                              child: Padding(
-                                padding: const EdgeInsets.all(16.0),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        Text(
-                                          '${table['name']} (${table['shape']} - ${assignedGuests.length}/${table['seats']} stolar)',
-                                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                                        ),
-                                        Row(
-                                          children: [
-                                            IconButton(
-                                              icon: const Icon(Icons.edit, color: Colors.orange, size: 20),
-                                              onPressed: () => _openTableFormDialog(tableToEdit: table),
-                                            ),
-                                            IconButton(
-                                              icon: const Icon(Icons.delete, color: Colors.red, size: 20),
-                                              onPressed: () => _confirmDeleteTable(table),
-                                            ),
-                                          ],
-                                        ),
-                                      ],
-                                    ),
-                                    const Divider(),
-                                    Wrap(
-                                      spacing: 8,
-                                      children: assignedGuests.map((guest) {
-                                        return FilterChip(
-                                          avatar: Icon(guest.isLocked ? Icons.lock : Icons.lock_open, size: 16),
-                                          label: Text('${guest.seatNumber}. ${guest.fullName}'),
-                                          selected: guest.isLocked,
-                                          selectedColor: Colors.amber[100],
-                                          backgroundColor: Colors.blue[50],
-                                          showCheckmark: false,
-                                          onSelected: (bool selected) async {
-                                            setState(() => guest.isLocked = selected);
-                                            await StorageService.saveGuests(widget.weddingId, widget.guests);
-                                          },
-                                          onDeleted: () async {
-                                            setState(() {
-                                              assignedGuests.remove(guest);
-                                              guest.tableId = null;
-                                              guest.seatNumber = null;
-                                              // Packa om sätesnumren för de som sitter kvar
-                                              for (int i = 0; i < assignedGuests.length; i++) {
-                                                assignedGuests[i].seatNumber = i + 1;
-                                              }
-                                            });
-                                            await StorageService.saveGuests(widget.weddingId, widget.guests);
-                                          },
-                                        );
-                                      }).toList(),
-                                    ),
-                                    if (assignedGuests.isEmpty)
-                                      const Padding(
-                                        padding: EdgeInsets.all(8.0),
-                                        child: Text('Dra gäster hit...', style: TextStyle(color: Colors.grey)),
-                                      ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          },
-                        );
-                      },
-                    ),
+      body: isCompact
+          ? Column(
+              children: [
+                SizedBox(
+                  height: 280,
+                  child: _buildUnassignedPane(unassignedGuests, isCompact: true),
+                ),
+                Expanded(child: _buildTablesPane()),
+              ],
+            )
+          : Row(
+              children: [
+                Expanded(flex: 3, child: _buildTablesPane()),
+                Expanded(
+                  flex: 1,
+                  child: _buildUnassignedPane(unassignedGuests, isCompact: false),
+                ),
+              ],
             ),
-          ),
-          Expanded(
-            flex: 1,
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                border: Border(left: BorderSide(color: Colors.grey[300]!)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const Padding(
-                    padding: EdgeInsets.fromLTRB(16, 16, 16, 4),
-                    child: Text('Oplacerade personer', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 4.0),
-                    child: TextField(
-                      decoration: const InputDecoration(
-                        labelText: 'Sök efter namn...',
-                        prefixIcon: Icon(Icons.search, size: 20),
-                        isDense: true,
-                      ),
-                      onChanged: (val) => setState(() => _chartSearchQuery = val),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 4.0),
-                    child: DropdownButtonFormField<GuestTitle>(
-                      initialValue: _chartTitleFilter,
-                      decoration: const InputDecoration(labelText: 'Filtrera efter roll'),
-                      isExpanded: true,
-                      isDense: true,
-                      items: [
-                        const DropdownMenuItem(value: null, child: Text('Alla roller')),
-                        ...GuestTitle.values.map((t) => DropdownMenuItem(value: t, child: Text(t.name))),
-                      ],
-                      onChanged: (val) => setState(() => _chartTitleFilter = val),
-                    ),
-                  ),
-                  const Divider(height: 16),
-                  Expanded(
-                    child: Builder(
-                      builder: (context) {
-                        final menuList = unassignedGuests.where((g) {
-                          final matchesSearch = g.fullName.toLowerCase().contains(_chartSearchQuery.toLowerCase());
-                          final matchesTitle = _chartTitleFilter == null || g.title == _chartTitleFilter;
-                          return matchesSearch && matchesTitle;
-                        }).toList();
-
-                        if (menuList.isEmpty) {
-                          return const Center(
-                            child: Text('Inga personer matchar.', style: TextStyle(color: Colors.grey)),
-                          );
-                        }
-
-                        return ListView.builder(
-                          itemCount: menuList.length,
-                          itemBuilder: (context, index) {
-                            final guest = menuList[index];
-                            final isHost = guest.title == GuestTitle.bride || guest.title == GuestTitle.groom;
-
-                            return Draggable<Guest>(
-                              data: guest,
-                              feedback: Material(
-                                child: Container(
-                                  padding: const EdgeInsets.all(12),
-                                  color: isHost ? Colors.pink[100] : Colors.blue[100],
-                                  child: Text(guest.fullName),
-                                ),
-                              ),
-                              childWhenDragging: ListTile(
-                                title: Text(guest.fullName, style: const TextStyle(color: Colors.grey)),
-                                leading: const Icon(Icons.person, color: Colors.grey),
-                              ),
-                              child: Material(
-                                type: MaterialType.transparency,
-                                child: ListTile(
-                                  tileColor: isHost ? Colors.pink[50] : null,
-                                  title: Text(
-                                    guest.fullName,
-                                    style: TextStyle(fontWeight: isHost ? FontWeight.bold : FontWeight.normal),
-                                  ),
-                                  subtitle: Text(guest.title.name),
-                                  leading: const Icon(Icons.drag_indicator),
-                                  trailing: IconButton(
-                                    icon: Icon(guest.isLocked ? Icons.lock : Icons.lock_open),
-                                    onPressed: () async {
-                                      setState(() => guest.isLocked = !guest.isLocked);
-                                      await StorageService.saveGuests(widget.weddingId, widget.guests);
-                                    },
-                                  ),
-                                ),
-                              ),
-                            );
-                          },
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
