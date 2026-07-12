@@ -1,9 +1,16 @@
 import 'package:flutter/material.dart';
 import '../models/guest_model.dart';
+import '../services/storage_service.dart';
 
 class SeatingChartPage extends StatefulWidget {
   final List<Guest> guests;
-  const SeatingChartPage({super.key, required this.guests});
+  final String weddingId;
+
+  const SeatingChartPage({
+    super.key,
+    required this.guests,
+    required this.weddingId,
+  });
 
   @override
   State<SeatingChartPage> createState() => _SeatingChartPageState();
@@ -16,19 +23,45 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
 
   // Dynamisk lista över skapade bord (Honnörsbordet börjar på 8 platser)
   List<Map<String, dynamic>> tables = [
-    {'id': '1', 'name': 'Honnörsbord', 'seats': 8, 'shape': 'Rektangel', 'assigned': <Guest>[]},
+    {
+      'id': 'local-honor-table',
+      'name': 'Honnörsbord',
+      'seats': 8,
+      'shape': 'Rektangel',
+      'assigned': <Guest>[],
+    },
   ];
 
   @override
   void initState() {
     super.initState();
+    _syncHonorTableIdFromGuests();
     _prePlaceLockedGuests();
+  }
+
+  void _syncHonorTableIdFromGuests() {
+    for (final guest in widget.guests) {
+      final normalizedTableId = StorageService.normalizeUuidOrNull(
+        guest.tableId,
+      );
+      if (normalizedTableId != null) {
+        tables[0]['id'] = normalizedTableId;
+        return;
+      }
+    }
+  }
+
+  void _assignGuestToTable(Guest guest, Map<String, dynamic> table) {
+    guest.tableId = StorageService.normalizeUuidOrNull(table['id']?.toString());
   }
 
   void _prePlaceLockedGuests() {
     for (var guest in widget.guests) {
       if (guest.tableId != null) {
-        final table = tables.firstWhere((t) => t['id'] == guest.tableId, orElse: () => tables.first);
+        final table = tables.firstWhere(
+          (t) => t['id'] == guest.tableId,
+          orElse: () => tables.first,
+        );
         final List<Guest> assigned = table['assigned'];
         if (!assigned.contains(guest)) {
           assigned.add(guest);
@@ -41,8 +74,16 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
   void _runPlacementAlgorithm() {
     setState(() {
       // 1. Säkra automatiska relationer: Brudparet är vänner med ALLA gäster som standard
-      final hosts = widget.guests.where((g) => g.title == GuestTitle.bride || g.title == GuestTitle.groom).toList();
-      final standardGuests = widget.guests.where((g) => g.title != GuestTitle.bride && g.title != GuestTitle.groom).toList();
+      final hosts = widget.guests
+          .where(
+            (g) => g.title == GuestTitle.bride || g.title == GuestTitle.groom,
+          )
+          .toList();
+      final standardGuests = widget.guests
+          .where(
+            (g) => g.title != GuestTitle.bride && g.title != GuestTitle.groom,
+          )
+          .toList();
 
       for (var host in hosts) {
         for (var guest in standardGuests) {
@@ -68,20 +109,25 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
 
       int totalAvailableSeats = 0;
       for (var t in tables) {
-        totalAvailableSeats += (t['seats'] as int) - (t['assigned'] as List<Guest>).length;
+        totalAvailableSeats +=
+            (t['seats'] as int) - (t['assigned'] as List<Guest>).length;
       }
 
       if (unassigned.length > totalAvailableSeats) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             backgroundColor: Colors.red[700],
-            content: Text('⚠️ Det finns inte tillräckligt med bord! Det saknas ${unassigned.length - totalAvailableSeats} platser.'),
+            content: Text(
+              '⚠️ Det finns inte tillräckligt med bord! Det saknas ${unassigned.length - totalAvailableSeats} platser.',
+            ),
             duration: const Duration(seconds: 4),
           ),
         );
       }
 
-      unassigned.sort((a, b) => b.relations.length.compareTo(a.relations.length));
+      unassigned.sort(
+        (a, b) => b.relations.length.compareTo(a.relations.length),
+      );
 
       bool changesMade = true;
       while (unassigned.isNotEmpty && changesMade) {
@@ -101,7 +147,7 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
             bool hasConflict = false;
 
             for (var seated in assigned) {
-              if (guest.relations[seated.id] == RelationType.avoid || 
+              if (guest.relations[seated.id] == RelationType.avoid ||
                   seated.relations[guest.id] == RelationType.avoid) {
                 hasConflict = true;
                 break;
@@ -110,9 +156,11 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
 
             if (hasConflict) continue;
 
-            bool hasFriendHere = assigned.any((seated) => 
-                guest.relations[seated.id] == RelationType.friend || 
-                guest.relations[seated.id] == RelationType.partner);
+            bool hasFriendHere = assigned.any(
+              (seated) =>
+                  guest.relations[seated.id] == RelationType.friend ||
+                  guest.relations[seated.id] == RelationType.partner,
+            );
 
             if (hasFriendHere || bestCandidate == null) {
               bestCandidate = guest;
@@ -123,7 +171,7 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
           if (bestCandidate != null) {
             unassigned.remove(bestCandidate);
             assigned.add(bestCandidate);
-            bestCandidate.tableId = table['id'];
+            _assignGuestToTable(bestCandidate, table);
             changesMade = true;
           }
         }
@@ -140,7 +188,7 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
               if (otherAssigned.length < (otherTable['seats'] as int)) {
                 assigned.clear();
                 otherAssigned.add(loneWolf);
-                loneWolf.tableId = otherTable['id'];
+                _assignGuestToTable(loneWolf, otherTable);
                 break;
               }
             }
@@ -152,10 +200,16 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
 
   void _openTableFormDialog({Map<String, dynamic>? tableToEdit}) {
     final isEditing = tableToEdit != null;
-    final nameCtrl = TextEditingController(text: isEditing ? tableToEdit['name'] : 'Bord ${tables.length + 1}');
-    final seatsCtrl = TextEditingController(text: isEditing ? tableToEdit['seats'].toString() : '8');
+    final nameCtrl = TextEditingController(
+      text: isEditing ? tableToEdit['name'] : 'Bord ${tables.length + 1}',
+    );
+    final seatsCtrl = TextEditingController(
+      text: isEditing ? tableToEdit['seats'].toString() : '8',
+    );
     String selectedShape = isEditing ? tableToEdit['shape'] : 'Cirkel';
-    List<Guest> currentAssigned = isEditing ? List<Guest>.from(tableToEdit['assigned']) : [];
+    List<Guest> currentAssigned = isEditing
+        ? List<Guest>.from(tableToEdit['assigned'])
+        : [];
 
     showDialog(
       context: context,
@@ -165,8 +219,12 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
           final bool isOverflown = currentAssigned.length > maxSeatsAllowed;
 
           List<Guest> availableGuests = widget.guests.where((g) {
-            return !currentAssigned.contains(g) && 
-                   !tables.any((t) => t['id'] != (isEditing ? tableToEdit['id'] : '') && (t['assigned'] as List<Guest>).contains(g));
+            return !currentAssigned.contains(g) &&
+                !tables.any(
+                  (t) =>
+                      t['id'] != (isEditing ? tableToEdit['id'] : '') &&
+                      (t['assigned'] as List<Guest>).contains(g),
+                );
           }).toList();
 
           return AlertDialog(
@@ -176,57 +234,90 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Bordsnamn *')),
                   TextField(
-                    controller: seatsCtrl, 
-                    decoration: const InputDecoration(labelText: 'Antal sittplatser *'),
+                    controller: nameCtrl,
+                    decoration: const InputDecoration(labelText: 'Bordsnamn *'),
+                  ),
+                  TextField(
+                    controller: seatsCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Antal sittplatser *',
+                    ),
                     keyboardType: TextInputType.number,
                     onChanged: (_) => setDialogState(() {}),
                   ),
                   DropdownButtonFormField<String>(
                     initialValue: selectedShape,
                     decoration: const InputDecoration(labelText: 'Bordsform'),
-                    items: ['Kvadrat', 'Rektangel', 'Cirkel', 'Oval'].map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
-                    onChanged: (val) => setDialogState(() => selectedShape = val!),
+                    items: ['Kvadrat', 'Rektangel', 'Cirkel', 'Oval']
+                        .map((s) => DropdownMenuItem(value: s, child: Text(s)))
+                        .toList(),
+                    onChanged: (val) =>
+                        setDialogState(() => selectedShape = val!),
                   ),
                   const SizedBox(height: 16),
-                  Text('Placerade gäster (${currentAssigned.length} / $maxSeatsAllowed)', 
-                      style: TextStyle(fontWeight: FontWeight.bold, color: isOverflown ? Colors.red : Colors.black)),
+                  Text(
+                    'Placerade gäster (${currentAssigned.length} / $maxSeatsAllowed)',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: isOverflown ? Colors.red : Colors.black,
+                    ),
+                  ),
                   if (isOverflown) ...[
-                    const Text('⚠️ För många gäster! Ta bort gäster nedan innan du sparar.', style: TextStyle(color: Colors.red, fontSize: 12)),
+                    const Text(
+                      '⚠️ För många gäster! Ta bort gäster nedan innan du sparar.',
+                      style: TextStyle(color: Colors.red, fontSize: 12),
+                    ),
                   ],
                   SizedBox(
                     width: double.maxFinite,
                     height: 120,
-                    child: currentAssigned.isEmpty 
-                      ? const Center(child: Text('Bordet är tomt.', style: TextStyle(color: Colors.grey)))
-                      : ListView.builder(
-                          itemCount: currentAssigned.length,
-                          itemBuilder: (context, idx) {
-                            final g = currentAssigned[idx];
-                            return Container(
-                              decoration: BoxDecoration(
-                                border: Border.all(color: Colors.grey),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: ListTile(
-                                title: Text(g.fullName),
-                                dense: true,
-                                trailing: IconButton(
-                                  icon: const Icon(Icons.remove_circle, color: Colors.red),
-                                  onPressed: () => setDialogState(() => currentAssigned.remove(g)),
+                    child: currentAssigned.isEmpty
+                        ? const Center(
+                            child: Text(
+                              'Bordet är tomt.',
+                              style: TextStyle(color: Colors.grey),
+                            ),
+                          )
+                        : ListView.builder(
+                            itemCount: currentAssigned.length,
+                            itemBuilder: (context, idx) {
+                              final g = currentAssigned[idx];
+                              return Container(
+                                decoration: BoxDecoration(
+                                  border: Border.all(color: Colors.grey),
+                                  borderRadius: BorderRadius.circular(8),
                                 ),
-                              ),
-                            );
-                          },
-                        ),
+                                child: ListTile(
+                                  title: Text(g.fullName),
+                                  dense: true,
+                                  trailing: IconButton(
+                                    icon: const Icon(
+                                      Icons.remove_circle,
+                                      color: Colors.red,
+                                    ),
+                                    onPressed: () => setDialogState(
+                                      () => currentAssigned.remove(g),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
                   ),
                   const Divider(),
                   if (currentAssigned.length < maxSeatsAllowed) ...[
                     DropdownButton<Guest>(
                       hint: const Text('Sätt direkt vid bordet...'),
                       isExpanded: true,
-                      items: availableGuests.map((g) => DropdownMenuItem(value: g, child: Text(g.fullName))).toList(),
+                      items: availableGuests
+                          .map(
+                            (g) => DropdownMenuItem(
+                              value: g,
+                              child: Text(g.fullName),
+                            ),
+                          )
+                          .toList(),
                       onChanged: (guest) {
                         if (guest != null) {
                           setDialogState(() => currentAssigned.add(guest));
@@ -238,29 +329,39 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
               ),
             ),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Avbryt')),
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Avbryt'),
+              ),
               ElevatedButton(
-                onPressed: (isOverflown || nameCtrl.text.isEmpty || maxSeatsAllowed <= 0) 
-                  ? null 
-                  : () {
-                      setState(() {
-                        if (isEditing) {
-                          tableToEdit['name'] = nameCtrl.text.trim();
-                          tableToEdit['seats'] = maxSeatsAllowed;
-                          tableToEdit['shape'] = selectedShape;
-                          tableToEdit['assigned'] = currentAssigned;
-                        } else {
-                          tables.add({
-                            'id': DateTime.now().toString(),
-                            'name': nameCtrl.text.trim(),
-                            'seats': maxSeatsAllowed,
-                            'shape': selectedShape,
-                            'assigned': currentAssigned,
-                          });
-                        }
-                      });
-                      Navigator.pop(dialogContext);
-                    },
+                onPressed:
+                    (isOverflown ||
+                        nameCtrl.text.isEmpty ||
+                        maxSeatsAllowed <= 0)
+                    ? null
+                    : () {
+                        setState(() {
+                          if (isEditing) {
+                            tableToEdit['name'] = nameCtrl.text.trim();
+                            tableToEdit['seats'] = maxSeatsAllowed;
+                            tableToEdit['shape'] = selectedShape;
+                            tableToEdit['assigned'] = currentAssigned;
+                            for (final guest in currentAssigned) {
+                              _assignGuestToTable(guest, tableToEdit);
+                            }
+                          } else {
+                            tables.add({
+                              'id':
+                                  'local-${DateTime.now().microsecondsSinceEpoch}',
+                              'name': nameCtrl.text.trim(),
+                              'seats': maxSeatsAllowed,
+                              'shape': selectedShape,
+                              'assigned': currentAssigned,
+                            });
+                          }
+                        });
+                        Navigator.pop(dialogContext);
+                      },
                 child: const Text('Spara'),
               ),
             ],
@@ -275,9 +376,14 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Ta bort bord?'),
-        content: Text('Är du säker på att du vill ta bort ${table['name']}? Alla gäster blir oplacerade.'),
+        content: Text(
+          'Är du säker på att du vill ta bort ${table['name']}? Alla gäster blir oplacerade.',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Avbryt')),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Avbryt'),
+          ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () {
@@ -329,86 +435,138 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
             child: Container(
               color: Colors.grey[200],
               child: tables.isEmpty
-                ? const Center(child: Text('Inga bord skapade.'))
-                : ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: tables.length,
-                    itemBuilder: (context, index) {
-                      final table = tables[index];
-                      final List<Guest> assignedGuests = table['assigned'];
+                  ? const Center(child: Text('Inga bord skapade.'))
+                  : ListView.builder(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: tables.length,
+                      itemBuilder: (context, index) {
+                        final table = tables[index];
+                        final List<Guest> assignedGuests = table['assigned'];
 
-                      return DragTarget<Guest>(
-                        onAcceptWithDetails: (details) {
-                          if (assignedGuests.length >= table['seats']) {
-                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bordet är fullt!')));
-                            return;
-                          }
-                          setState(() {
-                            for (var t in tables) {
-                              (t['assigned'] as List<Guest>).remove(details.data);
+                        return DragTarget<Guest>(
+                          onAcceptWithDetails: (details) async {
+                            if (assignedGuests.length >= table['seats']) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Bordet är fullt!'),
+                                ),
+                              );
+                              return;
                             }
-                            assignedGuests.add(details.data);
-                            details.data.tableId = table['id'];
-                          });
-                        },
-                        builder: (context, candidateData, rejectedData) {
-                          return Card(
-                            margin: const EdgeInsets.only(bottom: 16),
-                            color: candidateData.isNotEmpty ? Colors.green[100] : Colors.white,
-                            child: Padding(
-                              padding: const EdgeInsets.all(16.0),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Text('${table['name']} (${table['shape']} - ${assignedGuests.length}/${table['seats']} stolar)',
-                                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                                      Row(
-                                        children: [
-                                          IconButton(icon: const Icon(Icons.edit, color: Colors.orange, size: 20), onPressed: () => _openTableFormDialog(tableToEdit: table)),
-                                          IconButton(icon: const Icon(Icons.delete, color: Colors.red, size: 20), onPressed: () => _confirmDeleteTable(table)),
-                                        ],
-                                      )
-                                    ],
-                                  ),
-                                  const Divider(),
-                                  Wrap(
-                                    spacing: 8,
-                                    children: assignedGuests.map((guest) {
-                                      return FilterChip(
-                                        avatar: Icon(guest.isLocked ? Icons.lock : Icons.lock_open, size: 16),
-                                        label: Text(guest.fullName),
-                                        selected: guest.isLocked,
-                                        selectedColor: Colors.amber[100],
-                                        backgroundColor: Colors.blue[50],
-                                        showCheckmark: false,
-                                        onSelected: (bool selected) {
-                                          setState(() => guest.isLocked = selected);
-                                        },
-                                        onDeleted: () {
-                                          setState(() {
-                                            assignedGuests.remove(guest);
-                                            guest.tableId = null;
-                                          });
-                                        },
-                                      );
-                                    }).toList(),
-                                  ),
-                                  if (assignedGuests.isEmpty)
-                                    const Padding(
-                                      padding: EdgeInsets.all(8.0),
-                                      child: Text('Dra gäster hit...', style: TextStyle(color: Colors.grey)),
-                                    )
-                                ],
+                            setState(() {
+                              for (var t in tables) {
+                                (t['assigned'] as List<Guest>).remove(
+                                  details.data,
+                                );
+                              }
+                              assignedGuests.add(details.data);
+                              _assignGuestToTable(details.data, table);
+                            });
+
+                            await StorageService.saveGuests(
+                              widget.weddingId,
+                              widget.guests,
+                            );
+                          },
+                          builder: (context, candidateData, rejectedData) {
+                            return Card(
+                              margin: const EdgeInsets.only(bottom: 16),
+                              color: candidateData.isNotEmpty
+                                  ? Colors.green[100]
+                                  : Colors.white,
+                              child: Padding(
+                                padding: const EdgeInsets.all(16.0),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Text(
+                                          '${table['name']} (${table['shape']} - ${assignedGuests.length}/${table['seats']} stolar)',
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 16,
+                                          ),
+                                        ),
+                                        Row(
+                                          children: [
+                                            IconButton(
+                                              icon: const Icon(
+                                                Icons.edit,
+                                                color: Colors.orange,
+                                                size: 20,
+                                              ),
+                                              onPressed: () =>
+                                                  _openTableFormDialog(
+                                                    tableToEdit: table,
+                                                  ),
+                                            ),
+                                            IconButton(
+                                              icon: const Icon(
+                                                Icons.delete,
+                                                color: Colors.red,
+                                                size: 20,
+                                              ),
+                                              onPressed: () =>
+                                                  _confirmDeleteTable(table),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                    const Divider(),
+                                    Wrap(
+                                      spacing: 8,
+                                      children: assignedGuests.map((guest) {
+                                        return FilterChip(
+                                          avatar: Icon(
+                                            guest.isLocked
+                                                ? Icons.lock
+                                                : Icons.lock_open,
+                                            size: 16,
+                                          ),
+                                          label: Text(guest.fullName),
+                                          selected: guest.isLocked,
+                                          selectedColor: Colors.amber[100],
+                                          backgroundColor: Colors.blue[50],
+                                          showCheckmark: false,
+                                          onSelected: (bool selected) {
+                                            setState(
+                                              () => guest.isLocked = selected,
+                                            );
+                                          },
+                                          onDeleted: () async {
+                                            setState(() {
+                                              assignedGuests.remove(guest);
+                                              guest.tableId = null;
+                                            });
+
+                                            await StorageService.saveGuests(
+                                              widget.weddingId,
+                                              widget.guests,
+                                            );
+                                          },
+                                        );
+                                      }).toList(),
+                                    ),
+                                    if (assignedGuests.isEmpty)
+                                      const Padding(
+                                        padding: EdgeInsets.all(8.0),
+                                        child: Text(
+                                          'Dra gäster hit...',
+                                          style: TextStyle(color: Colors.grey),
+                                        ),
+                                      ),
+                                  ],
+                                ),
                               ),
-                            ),
-                          );
-                        },
-                      );
-                    },
-                  ),
+                            );
+                          },
+                        );
+                      },
+                    ),
             ),
           ),
           // HÖGER SIDA: Sidomeny med sökning, filter och oplacerade gäster/värdar
@@ -426,32 +584,49 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
                     padding: EdgeInsets.fromLTRB(16, 16, 16, 4),
                     child: Text(
                       'Oplacerade personer',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
                     ),
                   ),
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 4.0),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12.0,
+                      vertical: 4.0,
+                    ),
                     child: TextField(
                       decoration: const InputDecoration(
                         labelText: 'Sök efter namn...',
                         prefixIcon: Icon(Icons.search, size: 20),
                         isDense: true,
                       ),
-                      onChanged: (val) => setState(() => _chartSearchQuery = val),
+                      onChanged: (val) =>
+                          setState(() => _chartSearchQuery = val),
                     ),
                   ),
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 4.0),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12.0,
+                      vertical: 4.0,
+                    ),
                     child: DropdownButton<GuestTitle>(
                       hint: const Text('Filtrera efter roll'),
                       value: _chartTitleFilter,
                       isExpanded: true,
                       isDense: true,
                       items: [
-                        const DropdownMenuItem(value: null, child: Text('Alla roller')),
-                        ...GuestTitle.values.map((t) => DropdownMenuItem(value: t, child: Text(t.name)))
+                        const DropdownMenuItem(
+                          value: null,
+                          child: Text('Alla roller'),
+                        ),
+                        ...GuestTitle.values.map(
+                          (t) =>
+                              DropdownMenuItem(value: t, child: Text(t.name)),
+                        ),
                       ],
-                      onChanged: (val) => setState(() => _chartTitleFilter = val),
+                      onChanged: (val) =>
+                          setState(() => _chartTitleFilter = val),
                     ),
                   ),
                   const Divider(height: 16),
@@ -459,49 +634,81 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
                     child: Builder(
                       builder: (context) {
                         final menuList = unassignedGuests.where((g) {
-                          final matchesSearch = g.fullName.toLowerCase().contains(_chartSearchQuery.toLowerCase());
-                          final matchesTitle = _chartTitleFilter == null || g.title == _chartTitleFilter;
+                          final matchesSearch = g.fullName
+                              .toLowerCase()
+                              .contains(_chartSearchQuery.toLowerCase());
+                          final matchesTitle =
+                              _chartTitleFilter == null ||
+                              g.title == _chartTitleFilter;
                           return matchesSearch && matchesTitle;
                         }).toList();
 
                         if (menuList.isEmpty) {
-                          return const Center(child: Text('Inga personer matchar.', style: TextStyle(color: Colors.grey)));
+                          return const Center(
+                            child: Text(
+                              'Inga personer matchar.',
+                              style: TextStyle(color: Colors.grey),
+                            ),
+                          );
                         }
 
                         return ListView.builder(
                           itemCount: menuList.length,
                           itemBuilder: (context, index) {
                             final guest = menuList[index];
-                            final isHost = guest.title == GuestTitle.bride || guest.title == GuestTitle.groom;
+                            final isHost =
+                                guest.title == GuestTitle.bride ||
+                                guest.title == GuestTitle.groom;
 
                             return Draggable<Guest>(
                               data: guest,
                               feedback: Material(
                                 child: Container(
                                   padding: const EdgeInsets.all(12),
-                                  color: isHost ? Colors.pink[100] : Colors.blue[100],
+                                  color: isHost
+                                      ? Colors.pink[100]
+                                      : Colors.blue[100],
                                   child: Text(guest.fullName),
                                 ),
                               ),
                               childWhenDragging: ListTile(
-                                title: Text(guest.fullName, style: const TextStyle(color: Colors.grey)),
-                                leading: const Icon(Icons.person, color: Colors.grey),
+                                title: Text(
+                                  guest.fullName,
+                                  style: const TextStyle(color: Colors.grey),
+                                ),
+                                leading: const Icon(
+                                  Icons.person,
+                                  color: Colors.grey,
+                                ),
                               ),
                               child: ListTile(
                                 // FIX: Ändrat från backgroundColor till tileColor för att laga linter-felet
                                 tileColor: isHost ? Colors.pink[50] : null,
-                                title: Text(guest.fullName, style: TextStyle(fontWeight: isHost ? FontWeight.bold : FontWeight.normal)),
+                                title: Text(
+                                  guest.fullName,
+                                  style: TextStyle(
+                                    fontWeight: isHost
+                                        ? FontWeight.bold
+                                        : FontWeight.normal,
+                                  ),
+                                ),
                                 subtitle: Text(guest.title.name),
                                 leading: const Icon(Icons.drag_indicator),
                                 trailing: IconButton(
-                                  icon: Icon(guest.isLocked ? Icons.lock : Icons.lock_open),
-                                  onPressed: () => setState(() => guest.isLocked = !guest.isLocked),
+                                  icon: Icon(
+                                    guest.isLocked
+                                        ? Icons.lock
+                                        : Icons.lock_open,
+                                  ),
+                                  onPressed: () => setState(
+                                    () => guest.isLocked = !guest.isLocked,
+                                  ),
                                 ),
                               ),
                             );
                           },
                         );
-                      }
+                      },
                     ),
                   ),
                 ],

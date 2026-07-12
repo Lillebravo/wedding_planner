@@ -394,12 +394,20 @@ class _GuestListPageState extends State<GuestListPage> {
           ),
           IconButton(
             icon: const Icon(Icons.chair_alt),
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => SeatingChartPage(guests: guests),
-              ),
-            ),
+            onPressed: () {
+              if (_activeWedding != null) {
+                // Säkerställ att bröllopet är laddat
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => SeatingChartPage(
+                      guests: guests,
+                      weddingId: _activeWedding!.id, // ✅ Skicka med ID:t här!
+                    ),
+                  ),
+                );
+              }
+            },
           ),
         ],
       ),
