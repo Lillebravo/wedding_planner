@@ -1,7 +1,6 @@
-import 'dart:math';
 import 'package:flutter/material.dart';
 import '../models/wedding_model.dart';
-import '../models/guest_model.dart'; 
+import '../models/guest_model.dart';
 import '../services/storage_service.dart';
 import 'landing_page.dart';
 
@@ -14,159 +13,45 @@ class OnboardingPage extends StatefulWidget {
 
 class _OnboardingPageState extends State<OnboardingPage> {
   final _formKey = GlobalKey<FormState>();
+  bool _isConnecting = false;
+  bool _isLoading = false;
+
   final _codeController = TextEditingController();
   final _p1Controller = TextEditingController();
   final _p2Controller = TextEditingController();
-  final _dateController = TextEditingController();
-  final _timeController = TextEditingController();
-  final _guestsController = TextEditingController();
   final _churchController = TextEditingController();
   final _venueController = TextEditingController();
-  
-  bool _isConnecting = false;
-  List<Wedding> _cloudWeddings = [];
-  bool _isLoading = false;
 
-  @override
-  void initState() {
-    super.initState();
-    _loadCloudWeddings();
-  }
-
-  void _loadCloudWeddings() async {
-    final weddings = await StorageService.getAllLocalWeddings();
-    setState(() {
-      _cloudWeddings = weddings;
-    });
-  }
+  DateTime? _selectedDate;
+  TimeOfDay? _selectedTime;
 
   void _generateRandomCode() {
-    final random = Random();
-    const characters = 'abcdefghijklmnopqrstuvwxyz0123456789';
-    final randomString = List.generate(5, (index) => characters[random.nextInt(characters.length)]).join();
+    final randomDigits = (DateTime.now().microsecondsSinceEpoch % 9000) + 1000;
     setState(() {
-      _codeController.text = 'brollop-$randomString';
+      _codeController.text = 'brollop-$randomDigits';
     });
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Välkommen till Bröllopsplaneraren')),
-      body: _isLoading 
-        ? const Center(child: CircularProgressIndicator())
-        : Center(
-        child: Container(
-          constraints: const BoxConstraints(maxWidth: 500),
-          padding: const EdgeInsets.all(24.0),
-          child: SingleChildScrollView(
-            child: Form(
-              key: _formKey,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(_isConnecting ? 'Logga in till bröllop' : 'Skapa nytt bröllop', 
-                      style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 20),
-                  TextFormField(
-                    controller: _codeController,
-                    decoration: InputDecoration(
-                      labelText: 'Bröllopskod', 
-                      border: const OutlineInputBorder(),
-                      suffixIcon: !_isConnecting 
-                        ? IconButton(
-                            icon: const Icon(Icons.flash_on, color: Colors.amber),
-                            tooltip: 'Generera automatisk kod',
-                            onPressed: _generateRandomCode,
-                          )
-                        : null,
-                    ),
-                    validator: (value) {
-                      if (value == null || value.isEmpty) return 'Ange eller generera en kod.';
-                      final cleanCode = value.trim();
-                      
-                      if (_isConnecting && !_cloudWeddings.any((w) => w.code == cleanCode)) {
-                        return 'Koden matchar inga aktiva bröllop i molnet.';
-                      }
-                      if (!_isConnecting && _cloudWeddings.any((w) => w.code == cleanCode)) {
-                        return 'Koden är upptagen. Detta bröllop finns redan!';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 20),
-                  ToggleButtons(
-                    isSelected: [!_isConnecting, _isConnecting],
-                    onPressed: (index) {
-                      setState(() { _isConnecting = index == 1; });
-                      _formKey.currentState?.validate();
-                    },
-                    children: const [
-                      Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('Skapa Nytt')), 
-                      Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text('Logga in med kod'))
-                    ],
-                  ),
-                  if (!_isConnecting) ...[
-                    const SizedBox(height: 20),
-                    TextFormField(
-                      controller: _p1Controller, 
-                      decoration: const InputDecoration(labelText: 'Partner 1 Namn *', border: OutlineInputBorder()),
-                      validator: (v) => v!.isEmpty ? 'Ange namn' : null,
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _p2Controller, 
-                      decoration: const InputDecoration(labelText: 'Partner 2 Namn *', border: OutlineInputBorder()),
-                      validator: (v) => v!.isEmpty ? 'Ange namn' : null,
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextFormField(
-                            controller: _dateController, 
-                            decoration: const InputDecoration(labelText: 'Datum (Frivilligt)', border: OutlineInputBorder(), hintText: 'YYYY-MM-DD'),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: TextFormField(
-                            controller: _timeController, 
-                            decoration: const InputDecoration(labelText: 'Tid (Frivilligt)', border: OutlineInputBorder(), hintText: 'HH:MM'),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _guestsController, 
-                      decoration: const InputDecoration(labelText: 'Beräknat antal gäster (Frivilligt)', border: OutlineInputBorder()),
-                      keyboardType: TextInputType.number,
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _churchController, 
-                      decoration: const InputDecoration(labelText: 'Adress för vigsel/ceremoni (Frivilligt)', border: OutlineInputBorder()),
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _venueController, 
-                      decoration: const InputDecoration(labelText: 'Adress för festen (Frivilligt)', border: OutlineInputBorder()),
-                    ),
-                  ],
-                  const SizedBox(height: 30),
-                  ElevatedButton(
-                    style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
-                    onPressed: _submit,
-                    child: Text(_isConnecting ? 'Anslut till Bröllop' : 'Skapa Bröllop'),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now().add(const Duration(days: 90)),
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 365 * 5)),
     );
+    if (picked != null) {
+      setState(() => _selectedDate = picked);
+    }
+  }
+
+  Future<void> _pickTime() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: const TimeOfDay(hour: 15, minute: 0),
+    );
+    if (picked != null) {
+      setState(() => _selectedTime = picked);
+    }
   }
 
   void _submit() async {
@@ -178,65 +63,245 @@ class _OnboardingPageState extends State<OnboardingPage> {
       try {
         if (_isConnecting) {
           final fetched = await StorageService.getWeddingFromCloud(enteredCode);
-          if (fetched == null) return;
+          if (fetched == null) {
+            setState(() => _isLoading = false);
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Koden matchar inget aktivt bröllop.'),
+              ),
+            );
+            return;
+          }
           activeWedding = fetched;
         } else {
+          final dateString = _selectedDate != null
+              ? _selectedDate!.toIso8601String().split(
+                  'T',
+                )[0] // Använd korrekt metod
+              : 'Ej satt';
+
+          final timeString = _selectedTime != null
+              ? '${_selectedTime!.hour.toString().padLeft(2, '0')}:${_selectedTime!.minute.toString().padLeft(2, '0')}'
+              : 'Ej satt';
+
           final tempWedding = Wedding(
-            id: DateTime.now().millisecondsSinceEpoch.toString(),
+            id: '',
             partner1: _p1Controller.text.trim(),
             partner2: _p2Controller.text.trim(),
-            dateStr: _dateController.text.isEmpty ? 'Ej satt' : _dateController.text.trim(),
-            timeStr: _timeController.text.isEmpty ? 'Ej satt' : _timeController.text.trim(),
+            dateStr: dateString,
+            timeStr: timeString,
             code: enteredCode,
-            estimatedGuests: _guestsController.text,
-            churchAddress: _churchController.text,
-            venueAddress: _venueController.text,
+            churchAddress: _churchController.text.trim(),
+            venueAddress: _venueController.text
+                .trim(), //venueAddress istället för trendAddress
           );
-          
-          // 1. Spara i molnet och tilldela direkt det uppdaterade objektet (med UUID) till activeWedding!
-          activeWedding = await StorageService.saveNewWeddingToList(tempWedding);
 
-          // 2. Nu är activeWedding.id garanterat ett äkta UUID
+          activeWedding = await StorageService.saveNewWeddingToList(
+            tempWedding,
+          );
+
+          final String honorTableUuid =
+              await StorageService.createOnboardingTable(
+                activeWedding.id,
+                'Honnörsbord',
+                8,
+              );
+
           final brideId = 'bride-${activeWedding.id}';
           final groomId = 'groom-${activeWedding.id}';
 
           List<Guest> defaultPair = [
             Guest(
               id: brideId,
-              firstName: _p1Controller.text.trim(),
+              firstName: activeWedding.partner1,
               lastName: '(Värd)',
               title: GuestTitle.bride,
               isLocked: true,
-              tableId: '1',
+              tableId: honorTableUuid,
+              seatNumber: 1,
             )..relations[groomId] = RelationType.partner,
             Guest(
               id: groomId,
-              firstName: _p2Controller.text.trim(),
+              firstName: activeWedding.partner2,
               lastName: '(Värd)',
               title: GuestTitle.groom,
               isLocked: true,
-              tableId: '1',
+              tableId: honorTableUuid,
+              seatNumber: 2,
             )..relations[brideId] = RelationType.partner,
           ];
-          
-          // 3. Spara gästerna länkade till det korrekta UUID-formatet
+
           await StorageService.saveGuests(activeWedding.id, defaultPair);
         }
 
-        // Spara sessionen lokalt
         await StorageService.saveActiveWedding(activeWedding);
-        
+
         if (!mounted) return;
         Navigator.pushReplacement(
-          context, 
+          context,
           MaterialPageRoute(builder: (context) => const LandingPage()),
         );
       } catch (e) {
         setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ett fel uppstod vid kommunikation med databasen: $e'))
-        );
+        if (!mounted) return;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Ett fel uppstod: $e')));
       }
     }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24.0),
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 500),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    _isConnecting
+                        ? 'Anslut till bröllop'
+                        : 'Skapa nytt bröllop',
+                    style: const TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 24),
+                  TextFormField(
+                    controller: _codeController,
+                    decoration: InputDecoration(
+                      labelText: 'Bröllopskod',
+                      border: const OutlineInputBorder(),
+                      suffixIcon: _isConnecting
+                          ? null
+                          : IconButton(
+                              icon: const Icon(
+                                Icons.flash_on,
+                                color: Colors.amber,
+                              ),
+                              onPressed: _generateRandomCode,
+                            ),
+                    ),
+                    validator: (v) =>
+                        v == null || v.trim().isEmpty ? 'Ange kod' : null,
+                  ),
+                  const SizedBox(height: 16),
+                  ToggleButtons(
+                    isSelected: [!_isConnecting, _isConnecting],
+                    onPressed: (index) =>
+                        setState(() => _isConnecting = index == 1),
+                    borderRadius: BorderRadius.circular(8),
+                    children: const [
+                      Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 16),
+                        child: Text('Skapa Nytt'),
+                      ),
+                      Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 16),
+                        child: Text('Logga in med kod'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                  if (!_isConnecting) ...[
+                    TextFormField(
+                      controller: _p1Controller,
+                      decoration: const InputDecoration(
+                        labelText: 'Partner 1 Namn *',
+                        border: OutlineInputBorder(),
+                      ),
+                      validator: (v) => v == null || v.trim().isEmpty
+                          ? 'Obligatoriskt fält'
+                          : null,
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: _p2Controller,
+                      decoration: const InputDecoration(
+                        labelText: 'Partner 2 Namn *',
+                        border: OutlineInputBorder(),
+                      ),
+                      validator: (v) => v == null || v.trim().isEmpty
+                          ? 'Obligatoriskt fält'
+                          : null,
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            icon: const Icon(Icons.calendar_month),
+                            label: Text(
+                              _selectedDate == null
+                                  ? 'Välj Datum'
+                                  : _selectedDate!.toIso8601String().split('T')[0],
+                            ),
+                            onPressed: _pickDate,
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            icon: const Icon(Icons.access_time),
+                            label: Text(
+                              _selectedTime == null
+                                  ? 'Välj Tid'
+                                  : '${_selectedTime!.hour.toString().padLeft(2, '0')}:${_selectedTime!.minute.toString().padLeft(2, '0')}',
+                            ),
+                            onPressed: _pickTime,
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: _churchController,
+                      decoration: const InputDecoration(
+                        labelText: 'Adress för vigsel/ceremoni (Frivilligt)',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: _venueController,
+                      decoration: const InputDecoration(
+                        labelText: 'Adress för festen (Frivilligt)',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                  ],
+                  ElevatedButton(
+                    onPressed: _isLoading ? null : _submit,
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                    ),
+                    child: _isLoading
+                        ? const CircularProgressIndicator()
+                        : Text(_isConnecting ? 'Logga in' : 'Skapa Bröllop'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }

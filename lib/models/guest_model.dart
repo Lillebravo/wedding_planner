@@ -1,6 +1,6 @@
 // Uppdaterad med brud, brudgum, brudtärna och marskalk
 enum GuestTitle { none, bride, groom, maidOfHonor, groomsman, bestMan, parent, sibling, child }
-enum RelationType { partner, friend, avoid }
+enum RelationType { none, partner, friend, avoid }
 
 class Guest {
   String id;

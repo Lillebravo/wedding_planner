@@ -1,13 +1,14 @@
 class Wedding {
-  String id;
-  String partner1;
-  String partner2;
-  String dateStr; // Sparas som text för enkelhetens skull i utkastet
-  String timeStr;
-  String code;
-  String? estimatedGuests;
-  String? churchAddress;
-  String? venueAddress;
+  final String id;
+  final String partner1;
+  final String partner2;
+  final String dateStr; 
+  final String timeStr; 
+  final String code;
+  final String churchAddress;
+  final String venueAddress; // Säkerställd till venueAddress
+  final String? coverImageUrl;
+  final List<Map<String, dynamic>> itinerary; 
 
   Wedding({
     required this.id,
@@ -16,34 +17,37 @@ class Wedding {
     required this.dateStr,
     required this.timeStr,
     required this.code,
-    this.estimatedGuests,
-    this.churchAddress,
-    this.venueAddress,
+    required this.churchAddress,
+    required this.venueAddress,
+    this.coverImageUrl,
+    this.itinerary = const [],
   });
 
-  // Konvertera till Map för att spara som JSON-sträng
   Map<String, dynamic> toJson() => {
     'id': id,
-    'partner1': partner1,
-    'partner2': partner2,
-    'dateStr': dateStr,
-    'timeStr': timeStr,
-    'code': code,
-    'estimatedGuests': estimatedGuests,
-    'churchAddress': churchAddress,
-    'venueAddress': venueAddress,
+    'partner1_name': partner1,
+    'partner2_name': partner2,
+    'date': dateStr == 'Ej satt' ? null : dateStr,
+    'time': timeStr,
+    'wedding_code': code,
+    'ceremony_address': churchAddress,
+    'party_address': venueAddress, // Mappar mot party_address i Supabase
+    'cover_image_url': coverImageUrl,
+    'itinerary': itinerary, 
   };
 
-  // Skapa objekt från Map
   factory Wedding.fromJson(Map<String, dynamic> json) => Wedding(
-    id: json['id'],
-    partner1: json['partner1'],
-    partner2: json['partner2'],
-    dateStr: json['dateStr'],
-    timeStr: json['timeStr'],
-    code: json['code'],
-    estimatedGuests: json['estimatedGuests'],
-    churchAddress: json['churchAddress'],
-    venueAddress: json['venueAddress'],
+    id: json['id'] ?? '',
+    partner1: json['partner1_name'] ?? '',
+    partner2: json['partner2_name'] ?? '',
+    dateStr: json['date'] ?? 'Ej satt',
+    timeStr: json['time'] ?? 'Ej satt',
+    code: json['wedding_code'] ?? '',
+    churchAddress: json['ceremony_address'] ?? '',
+    venueAddress: json['party_address'] ?? '', // Läser från party_address
+    coverImageUrl: json['cover_image_url'],
+    itinerary: json['itinerary'] != null 
+        ? List<Map<String, dynamic>>.from(json['itinerary'])
+        : [],
   );
 }

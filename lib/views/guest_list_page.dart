@@ -551,20 +551,39 @@ class _GuestListPageState extends State<GuestListPage> {
                             trailing: DropdownButton<RelationType>(
                               hint: const Text('Välj relation'),
                               value: currentRelationType,
-                              items: RelationType.values
-                                  .map(
-                                    (type) => DropdownMenuItem(
-                                      value: type,
-                                      child: Text(type.name),
-                                    ),
-                                  )
-                                  .toList(),
+                              items: RelationType.values.map((type) {
+                                String label = type.name;
+                                if (type == RelationType.none) {
+                                  label = 'Ingen relation (Rensa)';
+                                }
+                                if (type == RelationType.partner) {
+                                  label = 'Partner (+1)';
+                                }
+                                if (type == RelationType.friend) {
+                                  label = 'Vän';
+                                }
+                                if (type == RelationType.avoid) {
+                                  label = 'Undvik placering';
+                                }
+
+                                return DropdownMenuItem(
+                                  value: type,
+                                  child: Text(label),
+                                );
+                              }).toList(),
                               onChanged: (type) {
                                 setState(() {
                                   setDialogState(() {
                                     if (type != null) {
-                                      currentGuest.relations[other.id] = type;
-                                      other.relations[currentGuest.id] = type;
+                                      if (type == RelationType.none) {
+                                        // Om man väljer "Ingen relation", ta bort nycklarna helt ur minnet
+                                        currentGuest.relations.remove(other.id);
+                                        other.relations.remove(currentGuest.id);
+                                      } else {
+                                        // Annars sparar vi den valda relationen
+                                        currentGuest.relations[other.id] = type;
+                                        other.relations[currentGuest.id] = type;
+                                      }
                                     }
                                   });
                                 });
