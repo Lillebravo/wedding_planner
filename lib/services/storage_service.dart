@@ -179,6 +179,59 @@ class StorageService {
     return response['id'] ?? '';
   }
 
+  static Future<String> addTable(
+    String weddingId,
+    String name,
+    int seats,
+    String shape,
+  ) async {
+    final response = await supabase
+        .from('tables')
+        .insert({
+          'wedding_id': weddingId,
+          'name': name,
+          'seats': seats,
+          'shape': shape,
+        })
+        .select('id')
+        .single();
+
+    return (response['id'] ?? '').toString();
+  }
+
+  static Future<void> updateTable(
+    String tableId,
+    String name,
+    int seats,
+    String shape,
+  ) async {
+    final normalizedTableId = _normalizeUuidOrNull(tableId);
+    if (normalizedTableId == null) {
+      debugPrint('Skipping updateTable for non-UUID id: $tableId');
+      return;
+    }
+
+    await supabase
+        .from('tables')
+        .update({'name': name, 'seats': seats, 'shape': shape})
+        .eq('id', normalizedTableId);
+  }
+
+  static Future<void> deleteTable(String tableId) async {
+    final normalizedTableId = _normalizeUuidOrNull(tableId);
+    if (normalizedTableId == null) {
+      debugPrint('Skipping deleteTable for non-UUID id: $tableId');
+      return;
+    }
+
+    await supabase
+        .from('guests')
+        .update({'table_id': null, 'seat_number': null})
+        .eq('table_id', normalizedTableId);
+
+    await supabase.from('tables').delete().eq('id', normalizedTableId);
+  }
+
   static Future<void> saveGuests(String weddingId, List<Guest> guests) async {
     Map<String, String> idMapping = {};
 
