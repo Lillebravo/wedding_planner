@@ -1229,7 +1229,6 @@ class _LandingPageState extends State<LandingPage> {
                 onPressed: () => openAddEventDialog(),
                 child: const Text('Ny Händelse'),
               ),
-              const Spacer(),
               TextButton(
                 onPressed: () => Navigator.pop(ctx),
                 child: const Text('Avbryt'),
