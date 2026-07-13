@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter_colorpicker/flutter_colorpicker.dart';
+import 'dart:math' as math;
 import '../models/wedding_model.dart';
 import '../services/storage_service.dart';
 import 'guest_list_page.dart';
@@ -16,6 +19,7 @@ class LandingPage extends StatefulWidget {
 class _LandingPageState extends State<LandingPage> {
   Wedding? _wedding;
   bool _isLoading = true;
+  Color _coverBackgroundColor = const Color(0xFFFCE4EC);
 
   @override
   void initState() {
@@ -25,10 +29,68 @@ class _LandingPageState extends State<LandingPage> {
 
   void _loadWeddingData() async {
     Wedding? w = await StorageService.getActiveWedding();
+    Color bgColor = const Color(0xFFFCE4EC);
+    if (w != null) {
+      final savedBg = await StorageService.getCoverBackgroundColorValue(w.id);
+      if (savedBg != null) {
+        bgColor = Color(savedBg);
+      }
+    }
+
     setState(() {
       _wedding = w;
+      _coverBackgroundColor = bgColor;
       _isLoading = false;
     });
+  }
+
+  Future<void> _saveWeddingWithCover({
+    String? coverImageUrl,
+    Color? coverBackgroundColor,
+  }) async {
+    if (_wedding == null) return;
+
+    setState(() => _isLoading = true);
+
+    try {
+      final updatedWedding = Wedding(
+        id: _wedding!.id,
+        partner1: _wedding!.partner1,
+        partner2: _wedding!.partner2,
+        dateStr: _wedding!.dateStr,
+        timeStr: _wedding!.timeStr,
+        code: _wedding!.code,
+        churchAddress: _wedding!.churchAddress,
+        venueAddress: _wedding!.venueAddress,
+        coverImageUrl: coverImageUrl ?? _wedding!.coverImageUrl,
+        itinerary: _wedding!.itinerary,
+      );
+
+      final savedWedding = await StorageService.updateWedding(updatedWedding);
+      await StorageService.saveActiveWedding(savedWedding);
+
+      if (coverBackgroundColor != null) {
+        await StorageService.saveCoverBackgroundColorValue(
+          savedWedding.id,
+          coverBackgroundColor.toARGB32(),
+        );
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _wedding = savedWedding;
+        if (coverBackgroundColor != null) {
+          _coverBackgroundColor = coverBackgroundColor;
+        }
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Kunde inte uppdatera omslagsinställningar: $e')),
+      );
+    }
   }
 
   void _logout() async {
@@ -79,8 +141,6 @@ class _LandingPageState extends State<LandingPage> {
       return;
     }
 
-    setState(() => _isLoading = true);
-
     final uploadResult = await StorageService.uploadCoverImage(
       _wedding!.id,
       selectedFile.name,
@@ -90,7 +150,6 @@ class _LandingPageState extends State<LandingPage> {
     if (!mounted) return;
 
     if (!uploadResult.isSuccess) {
-      setState(() => _isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -101,43 +160,183 @@ class _LandingPageState extends State<LandingPage> {
       return;
     }
 
-    try {
-      final updatedWedding = Wedding(
-        id: _wedding!.id,
-        partner1: _wedding!.partner1,
-        partner2: _wedding!.partner2,
-        dateStr: _wedding!.dateStr,
-        timeStr: _wedding!.timeStr,
-        code: _wedding!.code,
-        churchAddress: _wedding!.churchAddress,
-        venueAddress: _wedding!.venueAddress,
-        coverImageUrl: uploadResult.publicUrl,
-        itinerary: _wedding!.itinerary,
-      );
+    await _saveWeddingWithCover(coverImageUrl: uploadResult.publicUrl);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Omslagsbilden uppdaterades.')),
+    );
+  }
 
-      final savedWedding = await StorageService.updateWedding(updatedWedding);
-      await StorageService.saveActiveWedding(savedWedding);
+  Future<void> _openCoverSettingsMenu() async {
+    if (_wedding == null) return;
 
-      setState(() {
-        _wedding = savedWedding;
-        _isLoading = false;
-      });
+    final selectedAction = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.photo_library_outlined),
+                title: const Text('Välj bland uppladdade bilder'),
+                onTap: () => Navigator.pop(context, 'pick_existing'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.upload_file_outlined),
+                title: const Text('Ladda upp ny bild'),
+                onTap: () => Navigator.pop(context, 'upload_new'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.color_lens_outlined),
+                title: const Text('Välj bakgrundsfärg (färghjul)'),
+                onTap: () => Navigator.pop(context, 'pick_color'),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
 
-      if (!mounted) return;
+    if (!mounted || selectedAction == null) return;
+
+    if (selectedAction == 'upload_new') {
+      await _uploadNewCover();
+      return;
+    }
+
+    if (selectedAction == 'pick_existing') {
+      await _openUploadedCoverPicker();
+      return;
+    }
+
+    if (selectedAction == 'pick_color') {
+      await _openCoverColorPicker();
+    }
+  }
+
+  Future<void> _openUploadedCoverPicker() async {
+    if (_wedding == null) return;
+
+    final imageUrls = await StorageService.listCoverImageUrls(_wedding!.id);
+    if (!mounted) return;
+
+    if (imageUrls.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Omslagsbilden uppdaterades.')),
+        const SnackBar(content: Text('Inga uppladdade bilder hittades ännu.')),
       );
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Bilden laddades upp men URL kunde inte sparas i weddings: $e',
+      return;
+    }
+
+    final selectedUrl = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Välj omslagsbild'),
+        content: SizedBox(
+          width: 520,
+          height: 380,
+          child: GridView.builder(
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              crossAxisSpacing: 10,
+              mainAxisSpacing: 10,
+            ),
+            itemCount: imageUrls.length,
+            itemBuilder: (context, index) {
+              final imageUrl = imageUrls[index];
+              final isCurrent = imageUrl == _wedding!.coverImageUrl;
+
+              return InkWell(
+                onTap: () => Navigator.pop(dialogContext, imageUrl),
+                borderRadius: BorderRadius.circular(12),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Image.network(
+                        imageUrl,
+                        fit: BoxFit.cover,
+                        filterQuality: FilterQuality.high,
+                      ),
+                    ),
+                    if (isCurrent)
+                      Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.white, width: 3),
+                        ),
+                        child: const Align(
+                          alignment: Alignment.topRight,
+                          child: Padding(
+                            padding: EdgeInsets.all(6),
+                            child: Icon(Icons.check_circle, color: Colors.white),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              );
+            },
           ),
         ),
-      );
-    }
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Stäng'),
+          ),
+        ],
+      ),
+    );
+
+    if (selectedUrl == null || !mounted) return;
+    await _saveWeddingWithCover(coverImageUrl: selectedUrl);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Omslagsbild vald från uppladdade bilder.')),
+    );
+  }
+
+  Future<void> _openCoverColorPicker() async {
+    Color pickedColor = _coverBackgroundColor;
+
+    final shouldSave = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Välj bakgrundsfärg'),
+        content: SingleChildScrollView(
+          child: ColorPicker(
+            pickerColor: pickedColor,
+            onColorChanged: (color) => pickedColor = color,
+            colorPickerWidth: 300,
+            pickerAreaHeightPercent: 0.7,
+            enableAlpha: false,
+            displayThumbColor: true,
+            paletteType: PaletteType.hsvWithHue,
+            labelTypes: const [],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Avbryt'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Spara'),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldSave != true || !mounted) return;
+    await _saveWeddingWithCover(coverBackgroundColor: pickedColor);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Bakgrundsfärgen uppdaterades.')),
+    );
   }
 
   // Den stora inställningsmenyn för Bröllopet
@@ -248,6 +447,17 @@ class _LandingPageState extends State<LandingPage> {
           );
         },
       ),
+    );
+  }
+
+  Future<void> _copyWeddingCode() async {
+    final code = _wedding?.code.trim() ?? '';
+    if (code.isEmpty) return;
+
+    await Clipboard.setData(ClipboardData(text: code));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Bröllopskoden kopierades till klippbordet.')),
     );
   }
 
@@ -399,16 +609,13 @@ class _LandingPageState extends State<LandingPage> {
     }
 
     final screenWidth = MediaQuery.of(context).size.width;
-    final expandedHeight = screenWidth < 600
-        ? 260.0
-        : screenWidth < 1100
-            ? 320.0
-            : 360.0;
-    final coverMaxWidth = screenWidth < 700
-        ? screenWidth
-        : screenWidth < 1400
-            ? screenWidth * 0.88
-            : 1100.0;
+    final expandedHeight = screenWidth < 420
+      ? 300.0
+      : screenWidth < 700
+        ? 350.0
+        : screenWidth < 1200
+          ? 360.0
+          : 430.0;
 
     return Scaffold(
       body: CustomScrollView(
@@ -436,24 +643,65 @@ class _LandingPageState extends State<LandingPage> {
               background: Stack(
                 fit: StackFit.expand,
                 children: [
-                  Container(color: Colors.pink[50]),
-                  Center(
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(maxWidth: coverMaxWidth),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                        child: _wedding!.coverImageUrl != null
-                            ? Image.network(
-                                _wedding!.coverImageUrl!,
-                                fit: BoxFit.contain,
-                                alignment: Alignment.center,
-                              )
-                            : Container(
-                                color: Colors.pink[100],
-                                child: const Icon(Icons.favorite, size: 80, color: Colors.white),
-                              ),
-                      ),
-                    ),
+                  Container(color: _coverBackgroundColor),
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final availableWidth = constraints.maxWidth;
+                      final isSmallScreen = availableWidth < 700;
+                      final isVeryLargeScreen = availableWidth >= 1900;
+
+                      // On laptops we keep at least about half width.
+                      // On very large displays we cap near one third.
+                      final targetCoverWidth = isSmallScreen
+                          ? availableWidth
+                          : isVeryLargeScreen
+                              ? availableWidth * 0.33
+                              : math.max(availableWidth * 0.55, 560.0);
+
+                      final horizontalPadding = isSmallScreen ? 0.0 : 12.0;
+                      final verticalPadding = isSmallScreen ? 2.0 : 12.0;
+
+                      return Center(
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxWidth: targetCoverWidth,
+                            maxHeight: constraints.maxHeight,
+                          ),
+                          child: Padding(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: horizontalPadding,
+                              vertical: verticalPadding,
+                            ),
+                            child: _wedding!.coverImageUrl != null
+                                ? ClipRect(
+                                    child: Image.network(
+                                      _wedding!.coverImageUrl!,
+                                      width: double.infinity,
+                                      height: double.infinity,
+                                      fit: BoxFit.cover,
+                                      alignment: Alignment.topCenter,
+                                      filterQuality: FilterQuality.high,
+                                      gaplessPlayback: true,
+                                      errorBuilder: (context, error, stackTrace) {
+                                        return Container(
+                                          color: Colors.pink[100],
+                                          child: const Icon(
+                                            Icons.favorite,
+                                            size: 80,
+                                            color: Colors.white,
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  )
+                                : Container(
+                                    color: Colors.pink[100],
+                                    child: const Icon(Icons.favorite, size: 80, color: Colors.white),
+                                  ),
+                          ),
+                        ),
+                      );
+                    },
                   ),
                   Container(
                     decoration: const BoxDecoration(
@@ -465,7 +713,7 @@ class _LandingPageState extends State<LandingPage> {
                     right: 16,
                     child: FloatingActionButton.small(
                       heroTag: 'upload_btn',
-                      onPressed: _uploadNewCover,
+                      onPressed: _openCoverSettingsMenu,
                       child: const Icon(Icons.camera_alt),
                     ),
                   ),
@@ -482,6 +730,58 @@ class _LandingPageState extends State<LandingPage> {
                   children: [
                     const Text('Detaljer för dagen', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 8),
+                    Card(
+                      elevation: 0,
+                      color: Colors.pink[50],
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        side: BorderSide(color: Colors.pink.shade100),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 40,
+                              height: 40,
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Icon(Icons.groups_2_outlined, color: Colors.pink.shade400),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Dela koden med gäster',
+                                    style: TextStyle(fontWeight: FontWeight.w600),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    _wedding!.code,
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      letterSpacing: 0.4,
+                                      fontWeight: FontWeight.w700,
+                                      color: Colors.grey.shade800,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            IconButton.filledTonal(
+                              icon: const Icon(Icons.copy),
+                              tooltip: 'Kopiera kod',
+                              onPressed: _copyWeddingCode,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                     Card(
                       child: ListTile(
                         leading: const Icon(Icons.calendar_month, color: Colors.pink),

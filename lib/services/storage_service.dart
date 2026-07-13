@@ -19,6 +19,8 @@ class CoverUploadResult {
 class StorageService {
   static const String _weddingKey = 'active_wedding_code';
   static const String _coverBucket = 'wedding-covers';
+  static const String _coverBgPrefix = 'cover_bg_';
+  static const String _placementRulesPrefix = 'placement_rules_';
   static final RegExp _uuidPattern = RegExp(
     r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$',
   );
@@ -142,6 +144,54 @@ class StorageService {
     }
   }
 
+  static Future<List<String>> listCoverImageUrls(String weddingId) async {
+    try {
+      final files = await supabase.storage
+          .from(_coverBucket)
+          .list(path: weddingId);
+
+      final filtered = files
+          .where((item) {
+            final name = item.name.toLowerCase();
+            return name.endsWith('.jpg') ||
+                name.endsWith('.jpeg') ||
+                name.endsWith('.png') ||
+                name.endsWith('.webp') ||
+                name.endsWith('.gif');
+          })
+          .toList()
+        ..sort((a, b) => b.name.compareTo(a.name));
+
+      return filtered
+          .map(
+            (item) => supabase.storage
+                .from(_coverBucket)
+                .getPublicUrl('$weddingId/${item.name}'),
+          )
+          .where((url) => url.isNotEmpty)
+          .toList();
+    } on StorageException catch (e) {
+      debugPrint('Storage error while listing cover images: ${e.message}');
+      return <String>[];
+    } catch (e) {
+      debugPrint('Error listing cover images: $e');
+      return <String>[];
+    }
+  }
+
+  static Future<void> saveCoverBackgroundColorValue(
+    String weddingId,
+    int colorValue,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('$_coverBgPrefix$weddingId', colorValue);
+  }
+
+  static Future<int?> getCoverBackgroundColorValue(String weddingId) async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt('$_coverBgPrefix$weddingId');
+  }
+
   static String _sanitizeStorageFileName(String fileName) {
     final sanitized = fileName
         .trim()
@@ -230,6 +280,25 @@ class StorageService {
         .eq('table_id', normalizedTableId);
 
     await supabase.from('tables').delete().eq('id', normalizedTableId);
+  }
+
+  static Future<List<Map<String, dynamic>>> getTables(String weddingId) async {
+    final response = await supabase
+        .from('tables')
+        .select('id, name, seats, shape')
+        .eq('wedding_id', weddingId)
+        .order('created_at', ascending: true);
+
+    return response
+        .map<Map<String, dynamic>>(
+          (item) => {
+            'id': (item['id'] ?? '').toString(),
+            'name': (item['name'] ?? '').toString(),
+            'seats': item['seats'] ?? 0,
+            'shape': (item['shape'] ?? 'Rektangel').toString(),
+          },
+        )
+        .toList();
   }
 
   static Future<void> saveGuests(String weddingId, List<Guest> guests) async {
@@ -386,6 +455,38 @@ class StorageService {
 
   static String? normalizeUuidOrNull(String? value) {
     return _normalizeUuidOrNull(value);
+  }
+
+  static Future<void> savePlacementRules(
+    String weddingId,
+    List<Map<String, dynamic>> rules,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = '$_placementRulesPrefix$weddingId';
+    final payload = jsonEncode(rules);
+    await prefs.setString(key, payload);
+  }
+
+  static Future<List<Map<String, dynamic>>?> getPlacementRules(String weddingId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = '$_placementRulesPrefix$weddingId';
+    final payload = prefs.getString(key);
+    if (payload == null || payload.trim().isEmpty) {
+      return null;
+    }
+
+    try {
+      final decoded = jsonDecode(payload);
+      if (decoded is! List) return null;
+
+      return decoded
+          .whereType<Map>()
+          .map<Map<String, dynamic>>((item) => Map<String, dynamic>.from(item))
+          .toList();
+    } catch (e) {
+      debugPrint('Could not decode placement rules: $e');
+      return null;
+    }
   }
 
   static String? _normalizeUuidOrNull(String? value) {

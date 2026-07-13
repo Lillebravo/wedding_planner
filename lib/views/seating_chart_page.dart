@@ -2,6 +2,20 @@ import 'package:flutter/material.dart';
 import '../models/guest_model.dart';
 import '../services/storage_service.dart';
 
+enum PlacementRuleId { friendAtTable, partnerAdjacent }
+
+class PlacementRuleSetting {
+  final PlacementRuleId id;
+  final String title;
+  bool enabled;
+
+  PlacementRuleSetting({
+    required this.id,
+    required this.title,
+    required this.enabled,
+  });
+}
+
 class SeatingChartPage extends StatefulWidget {
   final List<Guest> guests;
   final String weddingId;
@@ -19,6 +33,7 @@ class SeatingChartPage extends StatefulWidget {
 class _SeatingChartPageState extends State<SeatingChartPage> {
   String _chartSearchQuery = '';
   GuestTitle? _chartTitleFilter;
+  bool _isLoadingTables = true;
 
   List<Map<String, dynamic>> tables = [
     {
@@ -30,11 +45,117 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
     },
   ];
 
+  final List<PlacementRuleSetting> _placementRules = [
+    PlacementRuleSetting(
+      id: PlacementRuleId.partnerAdjacent,
+      title: 'Partner bredvid',
+      enabled: true,
+    ),
+    PlacementRuleSetting(
+      id: PlacementRuleId.friendAtTable,
+      title: 'Minst en vän vid samma bord',
+      enabled: true,
+    ),
+  ];
+
   @override
   void initState() {
     super.initState();
-    _syncHonorTableIdFromGuests();
-    _prePlaceLockedGuests();
+    _loadPlacementRules();
+    _loadTables();
+  }
+
+  Future<void> _loadPlacementRules() async {
+    final storedRules = await StorageService.getPlacementRules(widget.weddingId);
+    if (storedRules == null || !mounted) return;
+
+    final Map<PlacementRuleId, PlacementRuleSetting> defaultRules = {
+      for (final rule in _placementRules)
+        rule.id: PlacementRuleSetting(id: rule.id, title: rule.title, enabled: rule.enabled),
+    };
+
+    final List<PlacementRuleSetting> orderedRules = [];
+    for (final entry in storedRules) {
+      final idString = entry['id']?.toString();
+      if (idString == null) continue;
+
+      final PlacementRuleId? ruleId = PlacementRuleId.values
+          .where((id) => id.name == idString)
+          .cast<PlacementRuleId?>()
+          .firstWhere((id) => id != null, orElse: () => null);
+      if (ruleId == null) continue;
+
+      final existing = defaultRules.remove(ruleId);
+      if (existing == null) continue;
+
+      final bool? enabledValue = entry['enabled'] as bool?;
+      existing.enabled = enabledValue ?? existing.enabled;
+      orderedRules.add(existing);
+    }
+
+    orderedRules.addAll(defaultRules.values);
+
+    setState(() {
+      _placementRules
+        ..clear()
+        ..addAll(orderedRules);
+    });
+  }
+
+  Future<void> _persistPlacementRules() async {
+    final payload = _placementRules
+        .map(
+          (rule) => {
+            'id': rule.id.name,
+            'enabled': rule.enabled,
+          },
+        )
+        .toList();
+
+    await StorageService.savePlacementRules(widget.weddingId, payload);
+  }
+
+  Future<void> _loadTables() async {
+    try {
+      final dbTables = await StorageService.getTables(widget.weddingId);
+
+      final loadedTables = dbTables
+          .map(
+            (t) => {
+              'id': t['id'],
+              'name': t['name'],
+              'seats': t['seats'],
+              'shape': t['shape'],
+              'assigned': <Guest>[],
+            },
+          )
+          .toList();
+
+      if (loadedTables.isEmpty) {
+        loadedTables.add({
+          'id': 'local-honor-table',
+          'name': 'Honnörsbord',
+          'seats': 8,
+          'shape': 'Rektangel',
+          'assigned': <Guest>[],
+        });
+      }
+
+      if (!mounted) return;
+      setState(() {
+        tables = loadedTables;
+        _syncHonorTableIdFromGuests();
+        _prePlaceLockedGuests();
+        _isLoadingTables = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _syncHonorTableIdFromGuests();
+        _prePlaceLockedGuests();
+        _isLoadingTables = false;
+      });
+    }
   }
 
   void _syncHonorTableIdFromGuests() {
@@ -53,6 +174,10 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
   }
 
   void _prePlaceLockedGuests() {
+    for (final table in tables) {
+      (table['assigned'] as List<Guest>).clear();
+    }
+
     for (var guest in widget.guests) {
       if (guest.tableId != null) {
         final table = tables.firstWhere(
@@ -65,6 +190,152 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
         }
       }
     }
+
+    for (final table in tables) {
+      _sortAssignedBySeat(table['assigned'] as List<Guest>);
+      _reindexSeats(table['assigned'] as List<Guest>, table);
+    }
+  }
+
+  void _sortAssignedBySeat(List<Guest> assignedGuests) {
+    assignedGuests.sort((a, b) {
+      final aSeat = a.seatNumber ?? 9999;
+      final bSeat = b.seatNumber ?? 9999;
+      return aSeat.compareTo(bSeat);
+    });
+  }
+
+  void _reindexSeats(List<Guest> assignedGuests, Map<String, dynamic> table) {
+    for (int i = 0; i < assignedGuests.length; i++) {
+      _assignGuestToTable(assignedGuests[i], table, i + 1);
+    }
+  }
+
+  bool _matchesPlacementRule(
+    PlacementRuleId rule,
+    Guest guest,
+    List<Guest> assigned,
+    int candidateSeat,
+  ) {
+    switch (rule) {
+      case PlacementRuleId.friendAtTable:
+        return assigned.any(
+          (seated) =>
+              guest.relations[seated.id] == RelationType.friend ||
+              guest.relations[seated.id] == RelationType.partner,
+        );
+      case PlacementRuleId.partnerAdjacent:
+        for (int i = 0; i < assigned.length; i++) {
+          final seated = assigned[i];
+          final relation = guest.relations[seated.id];
+          final reverseRelation = seated.relations[guest.id];
+          final isPartner = relation == RelationType.partner || reverseRelation == RelationType.partner;
+          if (!isPartner) continue;
+
+          final seatedSeat = i + 1;
+          if ((seatedSeat - candidateSeat).abs() == 1) {
+            return true;
+          }
+        }
+        return false;
+    }
+  }
+
+  int _placementScore(Guest guest, List<Guest> assigned, int candidateSeat) {
+    final enabledRules = _placementRules.where((r) => r.enabled).toList();
+    if (enabledRules.isEmpty) return 0;
+
+    int score = 0;
+    for (int i = 0; i < enabledRules.length; i++) {
+      final rule = enabledRules[i];
+      final weight = (enabledRules.length - i) * 100;
+      if (_matchesPlacementRule(rule.id, guest, assigned, candidateSeat)) {
+        score += weight;
+      }
+    }
+
+    return score;
+  }
+
+  Future<void> _showPlacementSettingsDialog() async {
+    final updatedRules = _placementRules
+        .map(
+          (rule) => PlacementRuleSetting(
+            id: rule.id,
+            title: rule.title,
+            enabled: rule.enabled,
+          ),
+        )
+        .toList();
+
+    await showDialog(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: const Text('Inställningar för autoplacering'),
+            content: SizedBox(
+              width: 460,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Slå av/på regler och dra för att välja vilken regel som är viktigast.',
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    height: 220,
+                    child: ReorderableListView.builder(
+                      itemCount: updatedRules.length,
+                      // ignore: deprecated_member_use
+                      onReorder: (oldIndex, newIndex) {
+                        setDialogState(() {
+                          if (newIndex > oldIndex) newIndex -= 1;
+                          final moved = updatedRules.removeAt(oldIndex);
+                          updatedRules.insert(newIndex, moved);
+                        });
+                      },
+                      itemBuilder: (context, index) {
+                        final rule = updatedRules[index];
+                        return Card(
+                          key: ValueKey(rule.id),
+                          child: SwitchListTile(
+                            value: rule.enabled,
+                            title: Text(rule.title),
+                            subtitle: Text('Prioritet ${index + 1}'),
+                            secondary: const Icon(Icons.drag_indicator),
+                            onChanged: (val) => setDialogState(() => rule.enabled = val),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Avbryt'),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  setState(() {
+                    _placementRules
+                      ..clear()
+                      ..addAll(updatedRules);
+                  });
+                  Navigator.pop(dialogContext);
+                  await _persistPlacementRules();
+                },
+                child: const Text('Spara'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
   }
 
   // Nu är metoden async och uppdaterar sätesnummer & databasen!
@@ -96,6 +367,8 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
       for (var table in tables) {
         List<Guest> assigned = table['assigned'] as List<Guest>;
         assigned.removeWhere((g) => !g.isLocked);
+        _sortAssignedBySeat(assigned);
+        _reindexSeats(assigned, table);
       }
 
       int totalAvailableSeats = 0;
@@ -130,6 +403,7 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
           if (assigned.length >= maxSeats) continue;
 
           Guest? bestCandidate;
+          int bestScore = -1;
 
           for (var guest in unassigned) {
             bool hasConflict = false;
@@ -143,15 +417,18 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
 
             if (hasConflict) continue;
 
-            bool hasFriendHere = assigned.any(
-              (seated) =>
-                  guest.relations[seated.id] == RelationType.friend ||
-                  guest.relations[seated.id] == RelationType.partner,
-            );
+            final candidateSeat = assigned.length + 1;
+            final score = _placementScore(guest, assigned, candidateSeat);
 
-            if (hasFriendHere || bestCandidate == null) {
+            if (score > bestScore) {
+              bestScore = score;
               bestCandidate = guest;
-              if (hasFriendHere) break;
+            } else if (score == bestScore && bestCandidate != null) {
+              if (guest.relations.length > bestCandidate.relations.length) {
+                bestCandidate = guest;
+              }
+            } else {
+              bestCandidate ??= guest;
             }
           }
 
@@ -185,9 +462,8 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
       // Ge alla gäster korrekta sätesnummer och tableId
       for (var table in tables) {
         List<Guest> assigned = table['assigned'] as List<Guest>;
-        for (int i = 0; i < assigned.length; i++) {
-          _assignGuestToTable(assigned[i], table, i + 1);
-        }
+        _sortAssignedBySeat(assigned);
+        _reindexSeats(assigned, table);
       }
     });
 
@@ -326,7 +602,7 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
                 onPressed: (isOverflown || nameCtrl.text.isEmpty || maxSeatsAllowed <= 0)
                     ? null
                     : () async {
-                        final nav = Navigator.of(dialogContext);
+                        Navigator.of(dialogContext).pop();
                         if (isEditing) {
                           setState(() {
                             tableToEdit['name'] = nameCtrl.text.trim();
@@ -365,7 +641,6 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
                           });
                         }
                         await StorageService.saveGuests(widget.weddingId, widget.guests);
-                        nav.pop();
                       },
                 child: const Text('Spara'),
               ),
@@ -390,7 +665,7 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () async {
-              final nav = Navigator.of(dialogContext);
+              Navigator.of(dialogContext).pop();
               setState(() {
                 List<Guest> assigned = table['assigned'] as List<Guest>;
                 for (var g in assigned) {
@@ -401,7 +676,6 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
               });
               await StorageService.deleteTable(table['id']);
               await StorageService.saveGuests(widget.weddingId, widget.guests);
-              nav.pop();
             },
             child: const Text('Ta bort', style: TextStyle(color: Colors.white)),
           ),
@@ -421,6 +695,7 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
               itemBuilder: (context, index) {
                 final table = tables[index];
                 final List<Guest> assignedGuests = table['assigned'];
+                _sortAssignedBySeat(assignedGuests);
 
                 return DragTarget<Guest>(
                   onAcceptWithDetails: (details) async {
@@ -431,11 +706,19 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
                       return;
                     }
                     setState(() {
+                      Map<String, dynamic>? oldTable;
                       for (var t in tables) {
-                        (t['assigned'] as List<Guest>).remove(details.data);
+                        final assigned = t['assigned'] as List<Guest>;
+                        if (assigned.remove(details.data)) {
+                          oldTable = t;
+                        }
+                      }
+                      if (oldTable != null) {
+                        final fromTable = oldTable;
+                        _reindexSeats(fromTable['assigned'] as List<Guest>, fromTable);
                       }
                       assignedGuests.add(details.data);
-                      _assignGuestToTable(details.data, table, assignedGuests.length);
+                      _reindexSeats(assignedGuests, table);
                     });
                     await StorageService.saveGuests(widget.weddingId, widget.guests);
                   },
@@ -476,35 +759,79 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
                               ],
                             ),
                             const Divider(),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: assignedGuests.map((guest) {
-                                return FilterChip(
-                                  avatar: Icon(guest.isLocked ? Icons.lock : Icons.lock_open, size: 16),
-                                  label: Text('${guest.seatNumber}. ${guest.fullName}'),
-                                  selected: guest.isLocked,
-                                  selectedColor: Colors.amber[100],
-                                  backgroundColor: Colors.blue[50],
-                                  showCheckmark: false,
-                                  onSelected: (bool selected) async {
-                                    setState(() => guest.isLocked = selected);
-                                    await StorageService.saveGuests(widget.weddingId, widget.guests);
-                                  },
-                                  onDeleted: () async {
+                            if (assignedGuests.isNotEmpty)
+                              SizedBox(
+                                height: assignedGuests.length * 62.0,
+                                child: ReorderableListView.builder(
+                                  shrinkWrap: true,
+                                  physics: const NeverScrollableScrollPhysics(),
+                                  itemCount: assignedGuests.length,
+                                  buildDefaultDragHandles: false,
+                                  // ignore: deprecated_member_use
+                                  onReorder: (oldIndex, newIndex) async {
                                     setState(() {
-                                      assignedGuests.remove(guest);
-                                      guest.tableId = null;
-                                      guest.seatNumber = null;
-                                      for (int i = 0; i < assignedGuests.length; i++) {
-                                        assignedGuests[i].seatNumber = i + 1;
-                                      }
+                                      if (newIndex > oldIndex) newIndex -= 1;
+                                      final moved = assignedGuests.removeAt(oldIndex);
+                                      assignedGuests.insert(newIndex, moved);
+                                      _reindexSeats(assignedGuests, table);
                                     });
                                     await StorageService.saveGuests(widget.weddingId, widget.guests);
                                   },
-                                );
-                              }).toList(),
-                            ),
+                                  itemBuilder: (context, guestIndex) {
+                                    final guest = assignedGuests[guestIndex];
+                                    return Container(
+                                      key: ValueKey('${table['id']}-${guest.id}'),
+                                      margin: const EdgeInsets.symmetric(vertical: 2),
+                                      decoration: BoxDecoration(
+                                        borderRadius: BorderRadius.circular(8),
+                                        color: Colors.transparent,
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          Expanded(
+                                            child: ReorderableDelayedDragStartListener(
+                                              index: guestIndex,
+                                              child: ListTile(
+                                                dense: true,
+                                                contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                                                leading: const Icon(Icons.drag_indicator),
+                                                title: Text('${guest.seatNumber}. ${guest.fullName}'),
+                                              ),
+                                            ),
+                                          ),
+                                          IconButton(
+                                            icon: Icon(
+                                              guest.isLocked ? Icons.lock : Icons.lock_open,
+                                            ),
+                                            onPressed: () async {
+                                              setState(() => guest.isLocked = !guest.isLocked);
+                                              await StorageService.saveGuests(
+                                                widget.weddingId,
+                                                widget.guests,
+                                              );
+                                            },
+                                          ),
+                                          IconButton(
+                                            icon: const Icon(Icons.remove_circle, color: Colors.red),
+                                            onPressed: () async {
+                                              setState(() {
+                                                assignedGuests.remove(guest);
+                                                guest.tableId = null;
+                                                guest.seatNumber = null;
+                                                _reindexSeats(assignedGuests, table);
+                                              });
+                                              await StorageService.saveGuests(
+                                                widget.weddingId,
+                                                widget.guests,
+                                              );
+                                            },
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
                             if (assignedGuests.isEmpty)
                               const Padding(
                                 padding: EdgeInsets.all(8.0),
@@ -629,6 +956,12 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoadingTables) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
     List<Guest> unassignedGuests = widget.guests.where((g) {
       return !tables.any((t) => (t['assigned'] as List<Guest>).contains(g));
     }).toList();
@@ -651,6 +984,11 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
               label: const Text('Autoplacera'),
               onPressed: _runPlacementAlgorithm,
             ),
+          IconButton(
+            icon: const Icon(Icons.tune),
+            tooltip: 'Inställningar för autoplacering',
+            onPressed: _showPlacementSettingsDialog,
+          ),
           if (!isCompact)
             const SizedBox(width: 8),
           IconButton(
