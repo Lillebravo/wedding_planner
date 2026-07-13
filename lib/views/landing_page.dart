@@ -6,7 +6,14 @@ import 'package:file_picker/file_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import '../models/wedding_model.dart';
+import '../l10n/app_localizations.dart';
 import '../services/storage_service.dart';
+import '../widgets/app_labeled_text_field.dart';
+import '../widgets/date_time_picker_buttons.dart';
+import '../widgets/dialog_action_buttons.dart';
+import '../widgets/dialog_title_with_close.dart';
+import '../widgets/language_toggle_button.dart';
+import '../widgets/preset_options_input.dart';
 import 'guest_list_page.dart';
 import 'onboarding_page.dart';
 
@@ -26,6 +33,37 @@ class _LandingPageState extends State<LandingPage> {
   bool _showHero = false;
   int _staggerStep = -1;
   Timer? _countdownTimer;
+
+  static const List<String> _itineraryCategoryKeys = [
+    'landing_category_welcome_drink',
+    'landing_category_guest_arrival',
+    'landing_category_ceremony',
+    'landing_category_confetti',
+    'landing_category_group_photo',
+    'landing_category_couple_photo',
+    'landing_category_reception',
+    'landing_category_mingle',
+    'landing_category_canapes',
+    'landing_category_toastmaster_intro',
+    'landing_category_starter',
+    'landing_category_interlude',
+    'landing_category_main_course',
+    'landing_category_dessert',
+    'landing_category_cake',
+    'landing_category_coffee',
+    'landing_category_open_bar',
+    'landing_category_toast',
+    'landing_category_speech',
+    'landing_category_quiz',
+    'landing_category_games',
+    'landing_category_live_music',
+    'landing_category_first_dance',
+    'landing_category_dance',
+    'landing_category_dj_set',
+    'landing_category_late_night_snack',
+    'landing_category_afterparty',
+    'landing_category_farewell',
+  ];
 
   @override
   void initState() {
@@ -141,6 +179,11 @@ class _LandingPageState extends State<LandingPage> {
       'minutes': minutes,
       'seconds': seconds,
     };
+  }
+
+  bool _isNotSetValue(String? value) {
+    final normalized = (value ?? '').trim().toLowerCase();
+    return normalized.isEmpty || normalized == 'ej satt' || normalized == 'not set';
   }
 
   Widget _buildHeroStat(String value, String label) {
@@ -361,7 +404,36 @@ class _LandingPageState extends State<LandingPage> {
     );
   }
 
-  Widget _buildScheduleItem(Map<String, dynamic> event) {
+  String _itineraryEventTitle(
+    Map<String, dynamic> event,
+    AppLocalizationsController localizations,
+  ) {
+    final categoryKey = event['categoryKey']?.toString();
+    if (categoryKey != null && categoryKey.isNotEmpty) {
+      return localizations.text(categoryKey);
+    }
+
+    final rawTitle = (event['title'] ?? '').toString();
+    final localizedFromRawKey = localizations.text(rawTitle);
+    if (localizedFromRawKey != rawTitle) {
+      return localizedFromRawKey;
+    }
+
+    final resolvedCategoryKey = localizations.keyForValue(
+      rawTitle,
+      candidateKeys: _itineraryCategoryKeys,
+    );
+    if (resolvedCategoryKey != null) {
+      return localizations.text(resolvedCategoryKey);
+    }
+
+    return rawTitle;
+  }
+
+  Widget _buildScheduleItem(
+    Map<String, dynamic> event,
+    AppLocalizationsController localizations,
+  ) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
       decoration: BoxDecoration(
@@ -387,7 +459,7 @@ class _LandingPageState extends State<LandingPage> {
           const SizedBox(width: 14),
           Expanded(
             child: Text(
-              event['title'] ?? '',
+              _itineraryEventTitle(event, localizations),
               style: const TextStyle(
                 fontSize: 16,
                 color: Color(0xFF24191D),
@@ -405,6 +477,7 @@ class _LandingPageState extends State<LandingPage> {
     bool clearCoverImage = false,
   }) async {
     if (_wedding == null) return;
+    final localizations = AppLocalizationsScope.of(context);
 
     setState(() => _isLoading = true);
 
@@ -447,7 +520,12 @@ class _LandingPageState extends State<LandingPage> {
       setState(() => _isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Kunde inte uppdatera omslagsinställningar: $e'),
+          content: Text(
+            localizations.text(
+              'landing_cover_settings_update_failed',
+              values: {'error': '$e'},
+            ),
+          ),
         ),
       );
     }
@@ -464,6 +542,7 @@ class _LandingPageState extends State<LandingPage> {
 
   // Ny funktion för att öppna kartor
   Future<void> _openMap(String address) async {
+    final localizations = AppLocalizationsScope.of(context);
     if (address.isEmpty) return;
     final uri = Uri.parse(
       'https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(address)}',
@@ -474,22 +553,21 @@ class _LandingPageState extends State<LandingPage> {
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Kunde inte öppna kartan.')),
+            SnackBar(content: Text(localizations.text('landing_map_open_failed'))),
           );
         }
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Ett fel uppstod vid öppning av karta.'),
-          ),
+          SnackBar(content: Text(localizations.text('landing_map_open_error'))),
         );
       }
     }
   }
 
   Future<void> _uploadNewCover() async {
+    final localizations = AppLocalizationsScope.of(context);
     final result = await FilePicker.pickFiles(
       type: FileType.image,
       withData: true,
@@ -504,11 +582,7 @@ class _LandingPageState extends State<LandingPage> {
 
     if (selectedFile.bytes == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Kunde inte lasa den valda bilden. Testa en annan fil.',
-          ),
-        ),
+        SnackBar(content: Text(localizations.text('landing_cover_read_failed'))),
       );
       return;
     }
@@ -525,7 +599,7 @@ class _LandingPageState extends State<LandingPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            uploadResult.errorMessage ?? 'Bilduppladdningen misslyckades.',
+            uploadResult.errorMessage ?? localizations.text('landing_cover_upload_failed'),
           ),
         ),
       );
@@ -535,12 +609,13 @@ class _LandingPageState extends State<LandingPage> {
     await _saveWeddingWithCover(coverImageUrl: uploadResult.publicUrl);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Omslagsbilden uppdaterades.')),
+      SnackBar(content: Text(localizations.text('landing_cover_updated'))),
     );
   }
 
   Future<void> _openCoverSettingsMenu() async {
     if (_wedding == null) return;
+    final localizations = AppLocalizationsScope.of(context);
 
     final selectedAction = await showModalBottomSheet<String>(
       context: context,
@@ -552,17 +627,17 @@ class _LandingPageState extends State<LandingPage> {
             children: [
               ListTile(
                 leading: const Icon(Icons.photo_library_outlined),
-                title: const Text('Välj bland uppladdade bilder'),
+                title: Text(localizations.text('landing_cover_pick_uploaded')),
                 onTap: () => Navigator.pop(context, 'pick_existing'),
               ),
               ListTile(
                 leading: const Icon(Icons.upload_file_outlined),
-                title: const Text('Ladda upp ny bild'),
+                title: Text(localizations.text('landing_cover_upload_new')),
                 onTap: () => Navigator.pop(context, 'upload_new'),
               ),
               ListTile(
                 leading: const Icon(Icons.color_lens_outlined),
-                title: const Text('Välj bakgrundsfärg (färghjul)'),
+                title: Text(localizations.text('landing_cover_pick_background')),
                 onTap: () => Navigator.pop(context, 'pick_color'),
               ),
               const SizedBox(height: 8),
@@ -591,13 +666,14 @@ class _LandingPageState extends State<LandingPage> {
 
   Future<void> _openUploadedCoverPicker() async {
     if (_wedding == null) return;
+    final localizations = AppLocalizationsScope.of(context);
 
     final imageUrls = await StorageService.listCoverImageUrls(_wedding!.id);
     if (!mounted) return;
 
     if (imageUrls.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Inga uppladdade bilder hittades ännu.')),
+        SnackBar(content: Text(localizations.text('landing_cover_no_uploaded_images'))),
       );
       return;
     }
@@ -609,14 +685,15 @@ class _LandingPageState extends State<LandingPage> {
 
         return StatefulBuilder(
           builder: (context, setDialogState) => AlertDialog(
-            title: const Text('Välj omslagsbild'),
+            title: DialogTitleWithClose(
+              titleText: localizations.text('landing_cover_select'),
+              onClose: () => Navigator.pop(dialogContext),
+            ),
             content: SizedBox(
               width: 520,
               height: 380,
               child: mutableImageUrls.isEmpty
-                  ? const Center(
-                      child: Text('Inga bilder kvar.'),
-                    )
+                  ? Center(child: Text(localizations.text('landing_cover_no_images_left')))
                   : GridView.builder(
                       gridDelegate:
                           const SliverGridDelegateWithFixedCrossAxisCount(
@@ -655,18 +732,15 @@ class _LandingPageState extends State<LandingPage> {
                                       final shouldDelete = await showDialog<bool>(
                                         context: dialogContext,
                                         builder: (confirmContext) => AlertDialog(
-                                          title: const Text('Ta bort bild?'),
-                                          content: const Text(
-                                            'Är du säker på att du vill ta bort den här bilden?',
+                                          title: DialogTitleWithClose(
+                                            titleText: localizations.text('landing_cover_delete_title'),
+                                            onClose: () => Navigator.pop(confirmContext),
                                           ),
+                                          content: Text(localizations.text('landing_cover_delete_confirm')),
                                           actions: [
-                                            TextButton(
-                                              onPressed: () => Navigator.pop(confirmContext, false),
-                                              child: const Text('Nej'),
-                                            ),
-                                            ElevatedButton(
+                                            DialogConfirmButton(
+                                              label: localizations.text('yes'),
                                               onPressed: () => Navigator.pop(confirmContext, true),
-                                              child: const Text('Ja'),
                                             ),
                                           ],
                                         ),
@@ -703,15 +777,18 @@ class _LandingPageState extends State<LandingPage> {
                                         });
 
                                         ScaffoldMessenger.of(this.context).showSnackBar(
-                                          const SnackBar(
-                                            content: Text('Bilden har tagits bort.'),
-                                          ),
+                                          SnackBar(content: Text(localizations.text('landing_cover_deleted'))),
                                         );
                                       } catch (e) {
                                         if (!mounted) return;
                                         ScaffoldMessenger.of(this.context).showSnackBar(
                                           SnackBar(
-                                            content: Text('Kunde inte ta bort bilden: $e'),
+                                            content: Text(
+                                              localizations.text(
+                                                'landing_cover_delete_failed',
+                                                values: {'error': '$e'},
+                                              ),
+                                            ),
                                           ),
                                         );
                                       }
@@ -750,12 +827,6 @@ class _LandingPageState extends State<LandingPage> {
                       },
                     ),
             ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(dialogContext),
-                child: const Text('Stäng'),
-              ),
-            ],
           ),
         );
       },
@@ -765,17 +836,21 @@ class _LandingPageState extends State<LandingPage> {
     await _saveWeddingWithCover(coverImageUrl: selectedUrl);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Omslagsbild vald från uppladdade bilder.')),
+      SnackBar(content: Text(localizations.text('landing_cover_selected_uploaded'))),
     );
   }
 
   Future<void> _openCoverColorPicker() async {
+    final localizations = AppLocalizationsScope.of(context);
     Color pickedColor = _coverBackgroundColor;
 
     final shouldSave = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Välj bakgrundsfärg'),
+        title: DialogTitleWithClose(
+          titleText: localizations.text('landing_cover_color_title'),
+          onClose: () => Navigator.pop(dialogContext),
+        ),
         content: SingleChildScrollView(
           child: ColorPicker(
             pickerColor: pickedColor,
@@ -789,13 +864,9 @@ class _LandingPageState extends State<LandingPage> {
           ),
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Avbryt'),
-          ),
-          ElevatedButton(
+          DialogConfirmButton(
+            label: localizations.text('save'),
             onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Spara'),
           ),
         ],
       ),
@@ -805,12 +876,13 @@ class _LandingPageState extends State<LandingPage> {
     await _saveWeddingWithCover(coverBackgroundColor: pickedColor);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Bakgrundsfärgen uppdaterades.')),
+      SnackBar(content: Text(localizations.text('landing_background_updated'))),
     );
   }
 
   // Den stora inställningsmenyn för Bröllopet
   void _openSettingsDialog() {
+    final localizations = AppLocalizationsScope.of(context);
     final p1Ctrl = TextEditingController(text: _wedding!.partner1);
     final p2Ctrl = TextEditingController(text: _wedding!.partner2);
     final churchCtrl = TextEditingController(text: _wedding!.churchAddress);
@@ -818,7 +890,7 @@ class _LandingPageState extends State<LandingPage> {
 
     DateTime? selectedDate = DateTime.tryParse(_wedding!.dateStr);
     TimeOfDay? selectedTime;
-    if (_wedding!.timeStr != 'Ej satt' && _wedding!.timeStr.contains(':')) {
+    if (!_isNotSetValue(_wedding!.timeStr) && _wedding!.timeStr.contains(':')) {
       final parts = _wedding!.timeStr.split(':');
       selectedTime = TimeOfDay(
         hour: int.parse(parts[0]),
@@ -831,89 +903,65 @@ class _LandingPageState extends State<LandingPage> {
       builder: (ctx) => StatefulBuilder(
         builder: (context, setDialogState) {
           return AlertDialog(
-            title: const Text('Redigera Bröllopsdetaljer'),
+            title: DialogTitleWithClose(
+              titleText: localizations.text('landing_wedding_details_edit_title'),
+              onClose: () => Navigator.pop(ctx),
+            ),
             content: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  TextField(
+                  AppLabeledTextField(
                     controller: p1Ctrl,
-                    decoration: const InputDecoration(labelText: 'Partner 1'),
+                    labelText: localizations.text('landing_partner_1'),
                   ),
-                  TextField(
+                  AppLabeledTextField(
                     controller: p2Ctrl,
-                    decoration: const InputDecoration(labelText: 'Partner 2'),
+                    labelText: localizations.text('landing_partner_2'),
                   ),
                   const SizedBox(height: 16),
                   Row(
                     children: [
                       Expanded(
-                        child: OutlinedButton.icon(
-                          icon: const Icon(Icons.calendar_month),
-                          label: Text(
-                            selectedDate == null
-                                ? 'Välj Datum'
-                                : selectedDate!.toIso8601String().split('T')[0],
-                          ),
-                          onPressed: () async {
-                            final picked = await showDatePicker(
-                              context: context,
-                              initialDate: selectedDate ?? DateTime.now(),
-                              firstDate: DateTime(2020),
-                              lastDate: DateTime(2030),
-                            );
-                            if (picked != null) {
-                              setDialogState(() => selectedDate = picked);
-                            }
+                        child: DatePickerOutlinedButton(
+                          selectedDate: selectedDate,
+                          pickDateLabel: localizations.text('pick_date'),
+                          initialDate: DateTime.now(),
+                          firstDate: DateTime(2020),
+                          lastDate: DateTime(2030),
+                          onPicked: (picked) {
+                            setDialogState(() => selectedDate = picked);
                           },
                         ),
                       ),
                       const SizedBox(width: 8),
                       Expanded(
-                        child: OutlinedButton.icon(
-                          icon: const Icon(Icons.access_time),
-                          label: Text(
-                            selectedTime == null
-                                ? 'Välj Tid'
-                                : '${selectedTime!.hour.toString().padLeft(2, '0')}:${selectedTime!.minute.toString().padLeft(2, '0')}',
-                          ),
-                          onPressed: () async {
-                            final picked = await showTimePicker(
-                              context: context,
-                              initialTime:
-                                  selectedTime ??
-                                  const TimeOfDay(hour: 15, minute: 0),
-                            );
-                            if (picked != null) {
-                              setDialogState(() => selectedTime = picked);
-                            }
+                        child: TimePickerOutlinedButton(
+                          selectedTime: selectedTime,
+                          pickTimeLabel: localizations.text('pick_time'),
+                          initialTime: const TimeOfDay(hour: 15, minute: 0),
+                          onPicked: (picked) {
+                            setDialogState(() => selectedTime = picked);
                           },
                         ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 16),
-                  TextField(
+                  AppLabeledTextField(
                     controller: churchCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Adress för ceremoni',
-                    ),
+                    labelText: localizations.text('landing_ceremony_address'),
                   ),
-                  TextField(
+                  AppLabeledTextField(
                     controller: venueCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Adress för festlokal',
-                    ),
+                    labelText: localizations.text('landing_venue_address'),
                   ),
                 ],
               ),
             ),
             actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('Avbryt'),
-              ),
-              ElevatedButton(
+              DialogConfirmButton(
+                label: localizations.text('save'),
                 onPressed: () async {
                   final navigator = Navigator.of(ctx);
                   final messenger = ScaffoldMessenger.of(context);
@@ -923,11 +971,11 @@ class _LandingPageState extends State<LandingPage> {
                     partner1: p1Ctrl.text.trim(),
                     partner2: p2Ctrl.text.trim(),
                     dateStr: selectedDate != null
-                        ? selectedDate!.toIso8601String().split('T')[0]
-                        : 'Ej satt',
+                        ? formatIsoDate(selectedDate!)
+                      : localizations.text('not_set'),
                     timeStr: selectedTime != null
-                        ? '${selectedTime!.hour.toString().padLeft(2, '0')}:${selectedTime!.minute.toString().padLeft(2, '0')}'
-                        : 'Ej satt',
+                        ? formatHHmm(selectedTime!)
+                      : localizations.text('not_set'),
                     code: _wedding!.code,
                     churchAddress: churchCtrl.text.trim(),
                     venueAddress: venueCtrl.text.trim(),
@@ -948,16 +996,19 @@ class _LandingPageState extends State<LandingPage> {
                       _isLoading = false;
                     });
                     messenger.showSnackBar(
-                      const SnackBar(
-                        content: Text('Detaljerna har uppdaterats!'),
-                      ),
+                      SnackBar(content: Text(localizations.text('landing_details_updated'))),
                     );
                   } catch (e) {
                     setState(() => _isLoading = false);
-                    messenger.showSnackBar(SnackBar(content: Text('Fel: $e')));
+                    messenger.showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          localizations.text('error_with_message', values: {'error': '$e'}),
+                        ),
+                      ),
+                    );
                   }
                 },
-                child: const Text('Spara'),
               ),
             ],
           );
@@ -967,20 +1018,20 @@ class _LandingPageState extends State<LandingPage> {
   }
 
   Future<void> _copyWeddingCode() async {
+    final localizations = AppLocalizationsScope.of(context);
     final code = _wedding?.code.trim() ?? '';
     if (code.isEmpty) return;
 
     await Clipboard.setData(ClipboardData(text: code));
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Bröllopskoden kopierades till klippbordet.'),
-      ),
+      SnackBar(content: Text(localizations.text('landing_wedding_code_copied'))),
     );
   }
 
   // Schema (Itinerary) hanteraren
   void _openItineraryDialog() {
+    final localizations = AppLocalizationsScope.of(context);
     List<Map<String, dynamic>> tempItinerary = List<Map<String, dynamic>>.from(
       _wedding!.itinerary,
     );
@@ -991,9 +1042,9 @@ class _LandingPageState extends State<LandingPage> {
         builder: (context, setDialogState) {
           Future<void> openEditEventDialog(int index) async {
             final existingEvent = tempItinerary[index];
-            final titleController = TextEditingController(
-              text: (existingEvent['title'] ?? '').toString(),
-            );
+            List<String> selectedTitle = <String>[
+              _itineraryEventTitle(existingEvent, localizations),
+            ];
 
             final timeString = (existingEvent['time'] ?? '').toString();
             final parts = timeString.split(':');
@@ -1006,42 +1057,42 @@ class _LandingPageState extends State<LandingPage> {
               context: ctx,
               builder: (editCtx) => StatefulBuilder(
                 builder: (context, setEditState) => AlertDialog(
-                  title: const Text('Redigera händelse'),
+                  title: DialogTitleWithClose(
+                    titleText: localizations.text('landing_event_edit_title'),
+                    onClose: () => Navigator.pop(editCtx),
+                  ),
                   content: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      OutlinedButton.icon(
-                        icon: const Icon(Icons.access_time),
-                        label: Text(
-                          '${selectedTime.hour.toString().padLeft(2, '0')}:${selectedTime.minute.toString().padLeft(2, '0')}',
-                        ),
-                        onPressed: () async {
-                          final picked = await showTimePicker(
-                            context: context,
-                            initialTime: selectedTime,
-                          );
-                          if (picked != null) {
-                            setEditState(() => selectedTime = picked);
-                          }
+                      TimePickerOutlinedButton(
+                        selectedTime: selectedTime,
+                        pickTimeLabel: localizations.text('pick_time'),
+                        initialTime: selectedTime,
+                        onPicked: (picked) {
+                          setEditState(() => selectedTime = picked);
                         },
                       ),
                       const SizedBox(height: 12),
-                      TextField(
-                        controller: titleController,
-                        decoration: const InputDecoration(
-                          labelText: 'Händelse',
-                        ),
+                      PresetOptionsInput(
+                        labelText: localizations.text('landing_event_label'),
+                        hintText: localizations.text('preset_custom_hint'),
+                        options: _itineraryCategoryKeys
+                            .map((key) => localizations.text(key))
+                            .toList(),
+                        selectedValues: selectedTitle,
+                        onChanged: (values) {
+                          setEditState(() {
+                            selectedTitle = values;
+                          });
+                        },
+                        multiSelect: false,
                       ),
                     ],
                   ),
                   actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(editCtx, false),
-                      child: const Text('Avbryt'),
-                    ),
-                    ElevatedButton(
+                    DialogConfirmButton(
+                      label: localizations.text('save'),
                       onPressed: () => Navigator.pop(editCtx, true),
-                      child: const Text('Spara'),
                     ),
                   ],
                 ),
@@ -1049,17 +1100,23 @@ class _LandingPageState extends State<LandingPage> {
             );
 
             if (shouldSave != true) {
-              titleController.dispose();
               return;
             }
 
-            final updatedTitle = titleController.text.trim();
+            final updatedTitle =
+                selectedTitle.isEmpty ? '' : selectedTitle.first.trim();
             if (updatedTitle.isNotEmpty) {
               setDialogState(() {
+                final mappedKey =
+                    localizations.keyForValue(
+                      updatedTitle,
+                      candidateKeys: _itineraryCategoryKeys,
+                    ) ??
+                    '';
                 tempItinerary[index] = {
-                  'time':
-                      '${selectedTime.hour.toString().padLeft(2, '0')}:${selectedTime.minute.toString().padLeft(2, '0')}',
-                  'title': updatedTitle,
+                  'time': formatHHmm(selectedTime),
+                  if (mappedKey.isNotEmpty) 'categoryKey': mappedKey,
+                  'title': mappedKey.isEmpty ? updatedTitle : '',
                 };
                 tempItinerary.sort(
                   (a, b) =>
@@ -1067,97 +1124,75 @@ class _LandingPageState extends State<LandingPage> {
                 );
               });
             }
-
-            titleController.dispose();
           }
 
           void openAddEventDialog() {
             TimeOfDay? eventTime;
-            String selectedCategory = 'Ceremoni';
-            final customCtrl = TextEditingController();
-            final categories = [
-              'Ceremoni',
-              'Mottagning',
-              'Förrätt',
-              'Varmrätt',
-              'Efterrätt',
-              'Brudskål',
-              'Tal',
-              'Dans',
-              'Annat (Fritext)',
-            ];
+            List<String> selectedCategory = <String>[];
 
             showDialog(
               context: ctx,
               builder: (addCtx) => StatefulBuilder(
                 builder: (context, setAddState) {
                   return AlertDialog(
-                    title: const Text('Lägg till händelse'),
+                    title: DialogTitleWithClose(
+                      titleText: localizations.text('landing_event_add_title'),
+                      onClose: () => Navigator.pop(addCtx),
+                    ),
                     content: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        OutlinedButton.icon(
-                          icon: const Icon(Icons.access_time),
-                          label: Text(
-                            eventTime == null
-                                ? 'Välj Tid *'
-                                : '${eventTime!.hour.toString().padLeft(2, '0')}:${eventTime!.minute.toString().padLeft(2, '0')}',
-                          ),
-                          onPressed: () async {
-                            final picked = await showTimePicker(
-                              context: context,
-                              initialTime: const TimeOfDay(hour: 15, minute: 0),
-                            );
-                            if (picked != null) {
+                          TimePickerOutlinedButton(
+                            selectedTime: eventTime,
+                            pickTimeLabel: localizations.text('pick_time'),
+                            required: true,
+                            initialTime: const TimeOfDay(hour: 15, minute: 0),
+                            onPicked: (picked) {
                               setAddState(() => eventTime = picked);
-                            }
-                          },
+                            },
                         ),
                         const SizedBox(height: 16),
-                        DropdownButtonFormField<String>(
-                          initialValue: selectedCategory,
-                          items: categories
-                              .map(
-                                (c) =>
-                                    DropdownMenuItem(value: c, child: Text(c)),
-                              )
+                        PresetOptionsInput(
+                          labelText: localizations.text('landing_event_category'),
+                          hintText: localizations.text('preset_custom_hint'),
+                          options: _itineraryCategoryKeys
+                              .map((key) => localizations.text(key))
                               .toList(),
-                          onChanged: (val) =>
-                              setAddState(() => selectedCategory = val!),
-                          decoration: const InputDecoration(
-                            labelText: 'Kategori',
-                          ),
+                          selectedValues: selectedCategory,
+                          onChanged: (values) {
+                            setAddState(() {
+                              if (values.isEmpty) {
+                                selectedCategory = <String>[];
+                                return;
+                              }
+                              selectedCategory = <String>[values.first];
+                            });
+                          },
+                          multiSelect: false,
                         ),
-                        if (selectedCategory == 'Annat (Fritext)') ...[
-                          const SizedBox(height: 8),
-                          TextField(
-                            controller: customCtrl,
-                            decoration: const InputDecoration(
-                              labelText: 'Egen händelse',
-                            ),
-                          ),
-                        ],
                       ],
                     ),
                     actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(addCtx),
-                        child: const Text('Avbryt'),
-                      ),
-                      ElevatedButton(
-                        onPressed: eventTime == null
+                      DialogConfirmButton(
+                        label: localizations.text('add'),
+                        onPressed: eventTime == null || selectedCategory.isEmpty
                             ? null
                             : () {
-                                final title =
-                                    selectedCategory == 'Annat (Fritext)'
-                                    ? customCtrl.text.trim()
-                                    : selectedCategory;
-                                if (title.isNotEmpty) {
+                                final rawChoice =
+                                    selectedCategory.isEmpty ? '' : selectedCategory.first;
+                                if (rawChoice.isNotEmpty) {
+                                  final mappedKey =
+                                      localizations.keyForValue(
+                                        rawChoice,
+                                        candidateKeys: _itineraryCategoryKeys,
+                                      ) ??
+                                      '';
+                                  final isPreset = mappedKey.isNotEmpty;
                                   setDialogState(() {
                                     tempItinerary.add({
-                                      'time':
-                                          '${eventTime!.hour.toString().padLeft(2, '0')}:${eventTime!.minute.toString().padLeft(2, '0')}',
-                                      'title': title,
+                                      'time': formatHHmm(eventTime!),
+                                      if (isPreset) 'categoryKey': mappedKey,
+                                      'title': isPreset ? '' : rawChoice,
                                     });
                                     // Sortera listan på tid (sträng-sortering funkar bra på HH:MM)
                                     tempItinerary.sort(
@@ -1169,7 +1204,6 @@ class _LandingPageState extends State<LandingPage> {
                                   Navigator.pop(addCtx);
                                 }
                               },
-                        child: const Text('Lägg till'),
                       ),
                     ],
                   );
@@ -1179,15 +1213,18 @@ class _LandingPageState extends State<LandingPage> {
           }
 
           return AlertDialog(
-            title: const Text('Hantera Schema'),
+            title: DialogTitleWithClose(
+              titleText: localizations.text('landing_itinerary_manage_title'),
+              onClose: () => Navigator.pop(ctx),
+            ),
             content: SizedBox(
               width: double.maxFinite,
               height: 300,
               child: tempItinerary.isEmpty
-                  ? const Center(
+                  ? Center(
                       child: Text(
-                        'Schemat är tomt.',
-                        style: TextStyle(color: Colors.grey),
+                        localizations.text('landing_itinerary_empty'),
+                        style: const TextStyle(color: Colors.grey),
                       ),
                     )
                   : ListView.builder(
@@ -1202,18 +1239,18 @@ class _LandingPageState extends State<LandingPage> {
                               fontSize: 16,
                             ),
                           ),
-                          title: Text(event['title'] ?? ''),
+                          title: Text(_itineraryEventTitle(event, localizations)),
                           trailing: Wrap(
                             spacing: 4,
                             children: [
                               IconButton(
                                 icon: const Icon(Icons.edit, color: Colors.blueGrey),
-                                tooltip: 'Redigera',
+                                tooltip: localizations.text('edit'),
                                 onPressed: () => openEditEventDialog(i),
                               ),
                               IconButton(
                                 icon: const Icon(Icons.delete, color: Colors.red),
-                                tooltip: 'Ta bort',
+                                tooltip: localizations.text('delete'),
                                 onPressed: () => setDialogState(
                                   () => tempItinerary.removeAt(i),
                                 ),
@@ -1227,13 +1264,10 @@ class _LandingPageState extends State<LandingPage> {
             actions: [
               TextButton(
                 onPressed: () => openAddEventDialog(),
-                child: const Text('Ny Händelse'),
+                child: Text(localizations.text('landing_event_new')),
               ),
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('Avbryt'),
-              ),
-              ElevatedButton(
+              DialogConfirmButton(
+                label: localizations.text('save'),
                 onPressed: () async {
                   final nav = Navigator.of(ctx);
                   final updatedWedding = Wedding(
@@ -1265,7 +1299,6 @@ class _LandingPageState extends State<LandingPage> {
                     setState(() => _isLoading = false);
                   }
                 },
-                child: const Text('Spara'),
               ),
             ],
           );
@@ -1276,6 +1309,7 @@ class _LandingPageState extends State<LandingPage> {
 
   @override
   Widget build(BuildContext context) {
+    final localizations = AppLocalizationsScope.of(context);
     if (_isLoading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
@@ -1306,14 +1340,16 @@ class _LandingPageState extends State<LandingPage> {
             elevation: 0,
             backgroundColor: Colors.white,
             actions: [
+              const LanguageToggleButton(),
+              const SizedBox(width: 8),
               IconButton(
                 icon: const Icon(Icons.settings),
-                tooltip: 'Inställningar',
+                tooltip: localizations.text('landing_settings'),
                 onPressed: _openSettingsDialog,
               ),
               IconButton(
                 icon: const Icon(Icons.people),
-                tooltip: 'Gästlista',
+                tooltip: localizations.text('landing_guest_list'),
                 onPressed: () => Navigator.push(
                   context,
                   MaterialPageRoute(
@@ -1323,7 +1359,7 @@ class _LandingPageState extends State<LandingPage> {
               ),
               IconButton(
                 icon: const Icon(Icons.logout),
-                tooltip: 'Logga ut',
+                tooltip: localizations.text('landing_logout'),
                 onPressed: _logout,
               ),
             ],
@@ -1407,7 +1443,7 @@ class _LandingPageState extends State<LandingPage> {
                             _buildStaggerItem(
                               step: 1,
                               child: Text(
-                                'We joyfully invite you to share in our\nhappiness as we unite in marriage.',
+                                localizations.text('landing_hero_invitation_text'),
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
                                   fontSize: screenWidth < 600 ? 17 : 22,
@@ -1437,7 +1473,7 @@ class _LandingPageState extends State<LandingPage> {
                                   ),
                                 ),
                                 child: Text(
-                                  '${_wedding!.dateStr} ${_wedding!.timeStr == 'Ej satt' ? '' : '• ${_wedding!.timeStr}'}'
+                                  '${_wedding!.dateStr} ${_isNotSetValue(_wedding!.timeStr) ? '' : '• ${_wedding!.timeStr}'}'
                                       .trim(),
                                   style: const TextStyle(
                                     color: Colors.white,
@@ -1455,10 +1491,10 @@ class _LandingPageState extends State<LandingPage> {
                                 spacing: 30,
                                 runSpacing: 18,
                                 children: [
-                                  _buildHeroStat('${countdown['days']}', 'DAYS'),
-                                  _buildHeroStat('${countdown['hours']}', 'HOURS'),
-                                  _buildHeroStat('${countdown['minutes']}', 'MINUTES'),
-                                  _buildHeroStat('${countdown['seconds']}', 'SECONDS'),
+                                  _buildHeroStat('${countdown['days']}', localizations.text('countdown_days')),
+                                  _buildHeroStat('${countdown['hours']}', localizations.text('countdown_hours')),
+                                  _buildHeroStat('${countdown['minutes']}', localizations.text('countdown_minutes')),
+                                  _buildHeroStat('${countdown['seconds']}', localizations.text('countdown_seconds')),
                                 ],
                               ),
                             ),
@@ -1503,8 +1539,8 @@ class _LandingPageState extends State<LandingPage> {
                           icon: Icons.local_florist,
                           accent: const Color(0xFFE4A7B6),
                           lines: [
-                            'Ser fram emot att dela denna dag',
-                            'med familj och vänner.',
+                            localizations.text('landing_partner1_line1'),
+                            localizations.text('landing_partner1_line2'),
                           ],
                         ),
                         _buildCoupleCard(
@@ -1512,8 +1548,8 @@ class _LandingPageState extends State<LandingPage> {
                           icon: Icons.favorite,
                           accent: const Color(0xFFD6A35D),
                           lines: [
-                            'Tack för att ni är med och gör',
-                            'firandet ännu mer minnesvärt.',
+                            localizations.text('landing_partner2_line1'),
+                            localizations.text('landing_partner2_line2'),
                           ],
                         ),
                       ],
@@ -1522,19 +1558,20 @@ class _LandingPageState extends State<LandingPage> {
                     final detailTiles = <Widget>[
                       _buildInfoTile(
                         icon: Icons.groups_2_outlined,
-                        title: 'Dela koden med gäster',
+                        title: localizations.text('landing_share_code_title'),
                         subtitle: _wedding!.code,
                         accent: Colors.pink.shade400,
                         trailing: IconButton.filledTonal(
                           icon: const Icon(Icons.copy),
-                          tooltip: 'Kopiera kod',
+                          tooltip: localizations.text('landing_copy_code'),
                           onPressed: _copyWeddingCode,
                         ),
                       ),
                       _buildInfoTile(
                         icon: Icons.calendar_month,
-                        title: 'Vår bröllopsdag',
-                        subtitle: '${_wedding!.dateStr}\nTid: ${_wedding!.timeStr}',
+                        title: localizations.text('landing_wedding_day_title'),
+                        subtitle:
+                            '${_wedding!.dateStr}\n${localizations.text('landing_time_prefix')}: ${_wedding!.timeStr}',
                         accent: Colors.pink.shade400,
                       ),
                     ];
@@ -1543,7 +1580,7 @@ class _LandingPageState extends State<LandingPage> {
                       detailTiles.add(
                         _buildInfoTile(
                           icon: Icons.church,
-                          title: 'Ceremoni',
+                          title: localizations.text('landing_ceremony_title'),
                           subtitle: _wedding!.churchAddress,
                           accent: Colors.blue.shade400,
                           trailing: const Icon(
@@ -1559,7 +1596,7 @@ class _LandingPageState extends State<LandingPage> {
                       detailTiles.add(
                         _buildInfoTile(
                           icon: Icons.celebration,
-                          title: 'Mottagning / Festlokal',
+                          title: localizations.text('landing_reception_title'),
                           subtitle: _wedding!.venueAddress,
                           accent: Colors.orange.shade400,
                           trailing: const Icon(
@@ -1573,8 +1610,8 @@ class _LandingPageState extends State<LandingPage> {
 
                     final sectionWidgets = <Widget>[
                       _buildSectionTitle(
-                        title: 'Meet The Happy Couple',
-                        subtitle: 'Get to know them even better.',
+                        title: localizations.text('landing_meet_couple_title'),
+                        subtitle: localizations.text('landing_meet_couple_subtitle'),
                       ),
                       const SizedBox(height: 18),
                       coupleCards,
@@ -1600,7 +1637,7 @@ class _LandingPageState extends State<LandingPage> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Our Wedding Day',
+                              localizations.text('landing_our_wedding_day'),
                               style: theme.textTheme.headlineMedium?.copyWith(
                                 color: Colors.white,
                                 fontWeight: FontWeight.w400,
@@ -1635,7 +1672,7 @@ class _LandingPageState extends State<LandingPage> {
                                   child: Center(
                                     child: _buildHeroStat(
                                       '${countdown['days']}',
-                                      'DAYS',
+                                      localizations.text('countdown_days'),
                                     ),
                                   ),
                                 ),
@@ -1652,7 +1689,7 @@ class _LandingPageState extends State<LandingPage> {
                                   child: Center(
                                     child: _buildHeroStat(
                                       '${countdown['hours']}',
-                                      'HOURS',
+                                      localizations.text('countdown_hours'),
                                     ),
                                   ),
                                 ),
@@ -1669,7 +1706,7 @@ class _LandingPageState extends State<LandingPage> {
                                   child: Center(
                                     child: _buildHeroStat(
                                       '${countdown['minutes']}',
-                                      'MINUTES',
+                                      localizations.text('countdown_minutes'),
                                     ),
                                   ),
                                 ),
@@ -1686,7 +1723,7 @@ class _LandingPageState extends State<LandingPage> {
                                   child: Center(
                                     child: _buildHeroStat(
                                       '${countdown['seconds']}',
-                                      'SECONDS',
+                                      localizations.text('countdown_seconds'),
                                     ),
                                   ),
                                 ),
@@ -1702,7 +1739,7 @@ class _LandingPageState extends State<LandingPage> {
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text(
-                            'Itinerary',
+                            localizations.text('landing_itinerary_title'),
                             style: theme.textTheme.headlineSmall?.copyWith(
                               fontWeight: FontWeight.w700,
                               color: const Color(0xFF2B1F26),
@@ -1724,7 +1761,7 @@ class _LandingPageState extends State<LandingPage> {
                         Padding(
                           padding: const EdgeInsets.only(top: 4),
                           child: Text(
-                            'Inget schema är satt ännu.',
+                            localizations.text('landing_itinerary_none_yet'),
                             style: theme.textTheme.bodyMedium?.copyWith(
                               fontStyle: FontStyle.italic,
                               color: Colors.grey,
@@ -1734,7 +1771,7 @@ class _LandingPageState extends State<LandingPage> {
                       );
                     } else {
                       for (final event in _wedding!.itinerary) {
-                        sectionWidgets.add(_buildScheduleItem(event));
+                        sectionWidgets.add(_buildScheduleItem(event, localizations));
                       }
                     }
 

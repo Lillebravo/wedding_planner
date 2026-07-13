@@ -8,7 +8,7 @@ class Guest {
   String lastName;
   String? email;
   String? phoneNumber;
-  String? dietaryRestrictions;
+  List<String> dietaryRestrictions;
   GuestTitle title;
   bool isLocked;
   String? tableId;
@@ -22,13 +22,14 @@ class Guest {
     required this.lastName,
     this.email,
     this.phoneNumber,
-    this.dietaryRestrictions,
+    List<String>? dietaryRestrictions,
     this.title = GuestTitle.none,
     this.isLocked = false,
     this.tableId,
     this.seatNumber,
     Map<String, RelationType>? relations,
-  }) : relations = relations ?? {};
+  })  : dietaryRestrictions = dietaryRestrictions ?? <String>[],
+        relations = relations ?? {};
 
   String get fullName => '$firstName $lastName';
 }

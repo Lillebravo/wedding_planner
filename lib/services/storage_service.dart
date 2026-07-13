@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -21,6 +22,7 @@ class StorageService {
   static const String _coverBucket = 'wedding-covers';
   static const String _coverBgPrefix = 'cover_bg_';
   static const String _placementRulesPrefix = 'placement_rules_';
+  static const String _floorPlanShowGuestsPrefix = 'floor_plan_show_guests_';
   static final RegExp _uuidPattern = RegExp(
     r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$',
   );
@@ -254,6 +256,8 @@ class StorageService {
           'name': name,
           'seats': seats,
           'shape': 'Rektangel',
+          'position_x': null,
+          'position_y': null,
         })
         .select()
         .single();
@@ -273,6 +277,8 @@ class StorageService {
           'name': name,
           'seats': seats,
           'shape': shape,
+          'position_x': null,
+          'position_y': null,
         })
         .select('id')
         .single();
@@ -293,8 +299,8 @@ class StorageService {
     }
 
     await supabase
-        .from('tables')
-        .update({'name': name, 'seats': seats, 'shape': shape})
+      .from('tables')
+      .update({'name': name, 'seats': seats, 'shape': shape})
         .eq('id', normalizedTableId);
   }
 
@@ -316,7 +322,7 @@ class StorageService {
   static Future<List<Map<String, dynamic>>> getTables(String weddingId) async {
     final response = await supabase
         .from('tables')
-        .select('id, name, seats, shape')
+      .select('id, name, seats, shape, position_x, position_y')
         .eq('wedding_id', weddingId)
         .order('created_at', ascending: true);
 
@@ -327,6 +333,8 @@ class StorageService {
             'name': (item['name'] ?? '').toString(),
             'seats': item['seats'] ?? 0,
             'shape': (item['shape'] ?? 'Rektangel').toString(),
+            'position_x': item['position_x'],
+            'position_y': item['position_y'],
           },
         )
         .toList();
@@ -425,7 +433,7 @@ class StorageService {
           seatNumber: item['seat_number'],
           phoneNumber: item['phone'],
           email: item['email'],
-          dietaryRestrictions: item['dietary_restrictions'],
+          dietaryRestrictions: _parseDietaryRestrictions(item['dietary_restrictions']),
         ),
       );
     }
@@ -520,6 +528,63 @@ class StorageService {
     }
   }
 
+  static Future<Map<String, ui.Offset>> getTableLayout(String weddingId) async {
+    try {
+      final result = <String, ui.Offset>{};
+      final response = await supabase
+          .from('tables')
+          .select('id, position_x, position_y')
+          .eq('wedding_id', weddingId);
+
+      for (final item in response) {
+        final tableId = (item['id'] ?? '').toString();
+        final x = item['position_x'];
+        final y = item['position_y'];
+
+        if (tableId.isEmpty || x is! num || y is! num) {
+          continue;
+        }
+
+        result[tableId] = ui.Offset(x.toDouble(), y.toDouble());
+      }
+
+      return result;
+    } catch (e) {
+      debugPrint('Could not decode table layout: $e');
+      return <String, ui.Offset>{};
+    }
+  }
+
+  static Future<void> saveTableLayout(
+    String weddingId,
+    Map<String, ui.Offset> layout,
+  ) async {
+    for (final entry in layout.entries) {
+      final normalizedTableId = _normalizeUuidOrNull(entry.key);
+      if (normalizedTableId == null) {
+        continue;
+      }
+
+      await supabase.from('tables').update({
+        'position_x': entry.value.dx,
+        'position_y': entry.value.dy,
+      }).eq('id', normalizedTableId);
+    }
+  }
+
+  static Future<void> saveFloorPlanShowGuests(
+    String weddingId,
+    bool showGuests,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('$_floorPlanShowGuestsPrefix$weddingId', showGuests);
+  }
+
+  static Future<bool?> getFloorPlanShowGuests(String weddingId) async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool('$_floorPlanShowGuestsPrefix$weddingId');
+  }
+
   static String? _normalizeUuidOrNull(String? value) {
     if (value == null) return null;
 
@@ -529,5 +594,26 @@ class StorageService {
 
     debugPrint('Ignoring non-UUID table_id while saving guest: $trimmedValue');
     return null;
+  }
+
+  static List<String> _parseDietaryRestrictions(dynamic rawValue) {
+    if (rawValue == null) return <String>[];
+
+    if (rawValue is List) {
+      return rawValue
+          .map((item) => item.toString().trim())
+          .where((item) => item.isNotEmpty)
+          .toList();
+    }
+
+    final asString = rawValue.toString().trim();
+    if (asString.isEmpty) return <String>[];
+
+    // Backward compatibility for old text storage (single value or comma-separated).
+    return asString
+        .split(',')
+        .map((item) => item.trim())
+        .where((item) => item.isNotEmpty)
+        .toList();
   }
 }

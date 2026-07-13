@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../models/wedding_model.dart';
 import '../models/guest_model.dart';
+import '../l10n/app_localizations.dart';
 import '../services/storage_service.dart';
 import 'landing_page.dart';
+import '../widgets/date_time_picker_buttons.dart';
+import '../widgets/language_toggle_button.dart';
 
 class OnboardingPage extends StatefulWidget {
   const OnboardingPage({super.key});
@@ -13,7 +17,7 @@ class OnboardingPage extends StatefulWidget {
 
 class _OnboardingPageState extends State<OnboardingPage> {
   static const String _rsvpBackgroundImage =
-      'https://images.unsplash.com/photo-1460978812857-470ed1c77af0?auto=format&fit=crop&w=1600&q=80';
+  'assets/images/onboarding_cover.jpg';
   final _formKey = GlobalKey<FormState>();
   bool _isConnecting = false;
   bool _isLoading = false;
@@ -44,28 +48,6 @@ class _OnboardingPageState extends State<OnboardingPage> {
     });
   }
 
-  Future<void> _pickDate() async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: DateTime.now().add(const Duration(days: 90)),
-      firstDate: DateTime.now(),
-      lastDate: DateTime.now().add(const Duration(days: 365 * 5)),
-    );
-    if (picked != null) {
-      setState(() => _selectedDate = picked);
-    }
-  }
-
-  Future<void> _pickTime() async {
-    final picked = await showTimePicker(
-      context: context,
-      initialTime: const TimeOfDay(hour: 15, minute: 0),
-    );
-    if (picked != null) {
-      setState(() => _selectedTime = picked);
-    }
-  }
-
   void _submit() async {
     if (_formKey.currentState!.validate()) {
       setState(() => _isLoading = true);
@@ -88,13 +70,11 @@ class _OnboardingPageState extends State<OnboardingPage> {
           activeWedding = fetched;
         } else {
           final dateString = _selectedDate != null
-              ? _selectedDate!.toIso8601String().split(
-                  'T',
-                )[0] // Använd korrekt metod
+              ? formatIsoDate(_selectedDate!)
               : 'Ej satt';
 
           final timeString = _selectedTime != null
-              ? '${_selectedTime!.hour.toString().padLeft(2, '0')}:${_selectedTime!.minute.toString().padLeft(2, '0')}'
+              ? formatHHmm(_selectedTime!)
               : 'Ej satt';
 
           final enteredCode = _codeController.text.trim().isEmpty
@@ -193,13 +173,13 @@ class _OnboardingPageState extends State<OnboardingPage> {
 
   @override
   Widget build(BuildContext context) {
-    final screenWidth = MediaQuery.of(context).size.width;
+    final localizations = AppLocalizationsScope.of(context);
 
     return Scaffold(
       body: Stack(
         fit: StackFit.expand,
         children: [
-          Image.network(
+          Image.asset(
             _rsvpBackgroundImage,
             fit: BoxFit.cover,
             errorBuilder: (context, error, stackTrace) => Container(
@@ -220,9 +200,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(24),
                 child: Align(
-                  alignment: screenWidth > 900
-                      ? const Alignment(-0.2, 0)
-                      : Alignment.center,
+                  alignment: Alignment.center,
                   child: Container(
                     constraints: const BoxConstraints(maxWidth: 520),
                     padding: const EdgeInsets.all(28),
@@ -237,13 +215,33 @@ class _OnboardingPageState extends State<OnboardingPage> {
                         ),
                       ],
                     ),
-                    child: Form(
-                      key: _formKey,
-                      child: Column(
+                    child: CallbackShortcuts(
+                      bindings: {
+                        const SingleActivator(LogicalKeyboardKey.enter): () {
+                          if (!_isLoading) {
+                            _submit();
+                          }
+                        },
+                        const SingleActivator(LogicalKeyboardKey.numpadEnter): () {
+                          if (!_isLoading) {
+                            _submit();
+                          }
+                        },
+                      },
+                      child: Form(
+                        key: _formKey,
+                        child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: LanguageToggleButton(),
+                          ),
+                          const SizedBox(height: 12),
                           Text(
-                            _isConnecting ? 'R.S.V.P.' : 'Create Your Wedding',
+                            _isConnecting
+                                ? localizations.text('onboarding_login_title')
+                                : localizations.text('onboarding_create_title'),
                             style: TextStyle(
                               fontSize: 42,
                               fontWeight: FontWeight.w400,
@@ -254,8 +252,8 @@ class _OnboardingPageState extends State<OnboardingPage> {
                           const SizedBox(height: 8),
                           Text(
                             _isConnecting
-                                ? 'Please enter your wedding code to continue.'
-                                : 'Fill in the details below to start planning your day.',
+                                ? localizations.text('onboarding_login_hint')
+                                : localizations.text('onboarding_create_hint'),
                             style: TextStyle(
                               fontSize: 18,
                               color: Colors.grey.shade700,
@@ -268,78 +266,82 @@ class _OnboardingPageState extends State<OnboardingPage> {
                           const SizedBox(height: 28),
                           TextFormField(
                             controller: _codeController,
+                            textAlign: TextAlign.center,
                             decoration: InputDecoration(
-                              labelText: 'Bröllopskod',
+                              labelText: localizations.text('wedding_code'),
                               border: const UnderlineInputBorder(),
                               suffixIcon: _isConnecting
                                   ? null
                                   : IconButton(
                                       icon: const Icon(Icons.auto_awesome_outlined),
                                       color: Theme.of(context).colorScheme.primary,
-                                      tooltip: 'Generera kod automatiskt',
+                                      tooltip: localizations.text('generate_code'),
                                       onPressed: _generateRandomCode,
                                     ),
                             ),
                             validator: (v) =>
                                 _isConnecting && (v == null || v.trim().isEmpty)
-                                    ? 'Ange kod'
+                                    ? localizations.text('enter_code')
                                     : null,
                           ),
                           const SizedBox(height: 24),
                           if (!_isConnecting) ...[
                             TextFormField(
                               controller: _p1Controller,
-                              decoration: const InputDecoration(
-                                labelText: 'Partner 1 Namn *',
+                              decoration: InputDecoration(
+                                labelText: '${localizations.text('partner_1_name')} *',
                                 border: UnderlineInputBorder(),
                               ),
                               validator: (v) => v == null || v.trim().isEmpty
-                                  ? 'Obligatoriskt fält'
+                                  ? localizations.text('required_field')
                                   : null,
                             ),
                             const SizedBox(height: 16),
                             TextFormField(
                               controller: _p2Controller,
-                              decoration: const InputDecoration(
-                                labelText: 'Partner 2 Namn *',
+                              decoration: InputDecoration(
+                                labelText: '${localizations.text('partner_2_name')} *',
                                 border: UnderlineInputBorder(),
                               ),
                               validator: (v) => v == null || v.trim().isEmpty
-                                  ? 'Obligatoriskt fält'
+                                  ? localizations.text('required_field')
                                   : null,
                             ),
                             const SizedBox(height: 18),
                             Row(
                               children: [
                                 Expanded(
-                                  child: OutlinedButton.icon(
-                                    icon: const Icon(Icons.calendar_month),
-                                    label: Text(
-                                      _selectedDate == null
-                                          ? 'Välj Datum'
-                                          : _selectedDate!.toIso8601String().split('T')[0],
+                                  child: DatePickerOutlinedButton(
+                                    selectedDate: _selectedDate,
+                                    pickDateLabel: localizations.text('pick_date'),
+                                    initialDate: DateTime.now().add(
+                                      const Duration(days: 90),
                                     ),
-                                    onPressed: _pickDate,
-                                    style: OutlinedButton.styleFrom(
-                                      padding: const EdgeInsets.symmetric(vertical: 16),
-                                      side: BorderSide(color: Colors.grey.shade300),
+                                    firstDate: DateTime.now(),
+                                    lastDate: DateTime.now().add(
+                                      const Duration(days: 365 * 5),
                                     ),
+                                    onPicked: (picked) {
+                                      setState(() => _selectedDate = picked);
+                                    },
+                                    padding: const EdgeInsets.symmetric(vertical: 16),
+                                    side: BorderSide(color: Colors.grey.shade300),
                                   ),
                                 ),
                                 const SizedBox(width: 12),
                                 Expanded(
-                                  child: OutlinedButton.icon(
-                                    icon: const Icon(Icons.access_time),
-                                    label: Text(
-                                      _selectedTime == null
-                                          ? 'Välj Tid'
-                                          : '${_selectedTime!.hour.toString().padLeft(2, '0')}:${_selectedTime!.minute.toString().padLeft(2, '0')}',
+                                  child: TimePickerOutlinedButton(
+                                    selectedTime: _selectedTime,
+                                    pickTimeLabel: localizations.text('pick_time'),
+                                    initialTime: const TimeOfDay(
+                                      hour: 15,
+                                      minute: 0,
                                     ),
-                                    onPressed: _pickTime,
-                                    style: OutlinedButton.styleFrom(
-                                      padding: const EdgeInsets.symmetric(vertical: 16),
-                                      side: BorderSide(color: Colors.grey.shade300),
-                                    ),
+                                    onPicked: (picked) {
+                                      setState(() => _selectedTime = picked);
+                                    },
+                                    padding: const EdgeInsets.symmetric(vertical: 16),
+                                    side: BorderSide(color: Colors.grey.shade300),
                                   ),
                                 ),
                               ],
@@ -382,7 +384,11 @@ class _OnboardingPageState extends State<OnboardingPage> {
                                       color: Colors.white,
                                     ),
                                   )
-                                : Text(_isConnecting ? 'Logga in' : 'Skapa Bröllop'),
+                                : Text(
+                                    _isConnecting
+                                        ? localizations.text('log_in')
+                                        : localizations.text('create_wedding'),
+                                  ),
                           ),
                           const SizedBox(height: 12),
                           if (_isConnecting)
@@ -392,7 +398,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
                                   _isConnecting = false;
                                 });
                               },
-                              child: const Text('Har du ingen kod? Skapa nytt bröllop här'),
+                              child: Text(localizations.text('switch_to_create')),
                             )
                           else
                             TextButton(
@@ -401,10 +407,11 @@ class _OnboardingPageState extends State<OnboardingPage> {
                                   _isConnecting = true;
                                 });
                               },
-                              child: const Text('Har du redan en kod? Logga in här'),
+                              child: Text(localizations.text('switch_to_login')),
                             ),
                         ],
                       ),
+                    ),
                     ),
                   ),
                 ),

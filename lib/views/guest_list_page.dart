@@ -1,9 +1,16 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../models/guest_model.dart';
 import '../models/wedding_model.dart';
+import '../l10n/app_localizations.dart';
 import '../services/storage_service.dart';
 import 'seating_chart_page.dart';
+import '../widgets/app_dropdown_form_field.dart';
+import '../widgets/app_labeled_text_field.dart';
+import '../widgets/app_search_field.dart';
+import '../widgets/dialog_action_buttons.dart';
+import '../widgets/dialog_title_with_close.dart';
+import '../widgets/language_toggle_button.dart';
+import '../widgets/preset_options_input.dart';
 
 class GuestListPage extends StatefulWidget {
   const GuestListPage({super.key});
@@ -54,7 +61,20 @@ class _GuestListPageState extends State<GuestListPage> {
   }
 
   void _openGuestFormDialog({Guest? guestToEdit}) {
+    final localizations = AppLocalizationsScope.of(context);
     final isEditing = guestToEdit != null;
+
+    final commonDietOptions = [
+      localizations.text('diet_option_vegetarian'),
+      localizations.text('diet_option_vegan'),
+      localizations.text('diet_option_pescetarian'),
+      localizations.text('diet_option_gluten_free'),
+      localizations.text('diet_option_lactose_free'),
+      localizations.text('diet_option_nut_allergy'),
+      localizations.text('diet_option_milk_protein_allergy'),
+      localizations.text('diet_option_egg_allergy'),
+      localizations.text('diet_option_shellfish_allergy'),
+    ];
 
     final firstNameCtrl = TextEditingController(
       text: isEditing ? guestToEdit.firstName : '',
@@ -68,9 +88,9 @@ class _GuestListPageState extends State<GuestListPage> {
     final phoneCtrl = TextEditingController(
       text: isEditing ? guestToEdit.phoneNumber : '',
     );
-    final dietCtrl = TextEditingController(
-      text: isEditing ? guestToEdit.dietaryRestrictions : '',
-    );
+    List<String> dietValues = isEditing
+        ? List<String>.from(guestToEdit.dietaryRestrictions)
+        : <String>[];
     GuestTitle selectedTitle = isEditing ? guestToEdit.title : GuestTitle.none;
 
     bool isDuplicate = false;
@@ -96,52 +116,56 @@ class _GuestListPageState extends State<GuestListPage> {
                 lastNameCtrl.text.trim().isEmpty;
 
             return AlertDialog(
-              title: Text(isEditing ? 'Redigera person' : 'Lägg till gäst'),
+              title: DialogTitleWithClose(
+                titleText: isEditing
+                    ? localizations.text('guest_edit_person')
+                    : localizations.text('guest_add_guest'),
+                onClose: () => Navigator.pop(dialogContext),
+              ),
               content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    TextField(
+                    AppLabeledTextField(
                       controller: firstNameCtrl,
-                      decoration: const InputDecoration(labelText: 'Förnamn *'),
+                      labelText: '${localizations.text('first_name')} *',
                       onChanged: (_) => checkDuplicate(),
                     ),
-                    TextField(
+                    AppLabeledTextField(
                       controller: lastNameCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Efternamn *',
-                      ),
+                      labelText: '${localizations.text('last_name')} *',
                       onChanged: (_) => checkDuplicate(),
                     ),
-                    TextField(
+                    AppLabeledTextField(
                       controller: emailCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'E-post (Frivilligt)',
-                      ),
+                      labelText: localizations.text('email_optional'),
                     ),
-                    TextField(
+                    AppLabeledTextField(
                       controller: phoneCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Telefonnummer (Frivilligt)',
-                      ),
+                      labelText: localizations.text('phone_optional'),
                     ),
-                    TextField(
-                      controller: dietCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Specialkost/Allergier (Frivilligt)',
-                      ),
+                    const SizedBox(height: 12),
+                    PresetOptionsInput(
+                      labelText: localizations.text('special_diet_optional'),
+                      hintText: localizations.text('preset_custom_hint'),
+                      options: commonDietOptions,
+                      selectedValues: dietValues,
+                      onChanged: (values) {
+                        setDialogState(() {
+                          dietValues = values;
+                        });
+                      },
+                      multiSelect: true,
                     ),
                     const SizedBox(height: 16),
-                    DropdownButtonFormField<GuestTitle>(
+                    AppDropdownFormField<GuestTitle>(
                       initialValue: selectedTitle,
-                      decoration: const InputDecoration(
-                        labelText: 'Titel/Roll',
-                      ),
+                      labelText: localizations.text('guest_role_title'),
                       items: GuestTitle.values
                           .map(
                             (title) => DropdownMenuItem(
                               value: title,
-                              child: Text(title.name),
+                              child: Text(localizations.guestTitle(title)),
                             ),
                           )
                           .toList(),
@@ -153,8 +177,8 @@ class _GuestListPageState extends State<GuestListPage> {
                     ),
                     if (isDuplicate) ...[
                       const SizedBox(height: 12),
-                      const Text(
-                        'Denna person finns redan i listan.',
+                      Text(
+                        localizations.text('guest_already_exists'),
                         style: TextStyle(
                           color: Colors.red,
                           fontWeight: FontWeight.bold,
@@ -166,11 +190,10 @@ class _GuestListPageState extends State<GuestListPage> {
                 ),
               ),
               actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(dialogContext),
-                  child: const Text('Avbryt'),
-                ),
-                ElevatedButton(
+                DialogConfirmButton(
+                  label: isEditing
+                      ? localizations.text('save')
+                      : localizations.text('add'),
                   onPressed: (isDuplicate || isFieldsEmpty)
                       ? null
                       : () {
@@ -185,10 +208,7 @@ class _GuestListPageState extends State<GuestListPage> {
                                   phoneCtrl.text.trim().isEmpty
                                   ? null
                                   : phoneCtrl.text.trim();
-                              guestToEdit.dietaryRestrictions =
-                                  dietCtrl.text.trim().isEmpty
-                                  ? null
-                                  : dietCtrl.text.trim();
+                              guestToEdit.dietaryRestrictions = _normalizeDietValues(dietValues);
                               guestToEdit.title = selectedTitle;
                             } else {
                               final newGuest = Guest(
@@ -202,10 +222,7 @@ class _GuestListPageState extends State<GuestListPage> {
                                 phoneNumber: phoneCtrl.text.trim().isEmpty
                                     ? null
                                     : phoneCtrl.text.trim(),
-                                dietaryRestrictions:
-                                    dietCtrl.text.trim().isEmpty
-                                    ? null
-                                    : dietCtrl.text.trim(),
+                                dietaryRestrictions: _normalizeDietValues(dietValues),
                                 title: selectedTitle,
                               );
 
@@ -229,7 +246,6 @@ class _GuestListPageState extends State<GuestListPage> {
                           _syncToStorage();
                           Navigator.pop(dialogContext);
                         },
-                  child: Text(isEditing ? 'Spara' : 'Lägg till'),
                 ),
               ],
             );
@@ -240,13 +256,10 @@ class _GuestListPageState extends State<GuestListPage> {
   }
 
   void _confirmDeleteDialog(Guest guest) {
+    final localizations = AppLocalizationsScope.of(context);
     if (guest.title == GuestTitle.bride || guest.title == GuestTitle.groom) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Värdarna (Brudparet) kan inte raderas från sitt eget bröllop!',
-          ),
-        ),
+        SnackBar(content: Text(localizations.text('hosts_cannot_be_deleted'))),
       );
       return;
     }
@@ -254,15 +267,17 @@ class _GuestListPageState extends State<GuestListPage> {
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Ta bort gäst?'),
-        content: Text('Är du säker på att du vill ta bort ${guest.fullName}?'),
+        title: DialogTitleWithClose(
+          titleText: localizations.text('delete_guest_title'),
+          onClose: () => Navigator.pop(dialogContext),
+        ),
+        content: Text(
+          localizations.text('delete_guest_confirm', values: {'name': guest.fullName}),
+        ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Avbryt'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+          DialogConfirmButton(
+            label: localizations.text('delete'),
+            destructive: true,
             onPressed: () {
               setState(() {
                 guests.removeWhere((g) => g.id == guest.id);
@@ -273,7 +288,6 @@ class _GuestListPageState extends State<GuestListPage> {
               _syncToStorage();
               Navigator.pop(dialogContext);
             },
-            child: const Text('Ta bort', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
@@ -282,6 +296,18 @@ class _GuestListPageState extends State<GuestListPage> {
 
   bool _isHost(Guest guest) {
     return guest.title == GuestTitle.bride || guest.title == GuestTitle.groom;
+  }
+
+  List<String> _normalizeDietValues(List<String> values) {
+    final normalized = <String>[];
+    for (final raw in values) {
+      final trimmed = raw.trim();
+      if (trimmed.isEmpty) continue;
+      if (!normalized.contains(trimmed)) {
+        normalized.add(trimmed);
+      }
+    }
+    return normalized;
   }
 
   int _hostPriority(Guest guest) {
@@ -301,9 +327,7 @@ class _GuestListPageState extends State<GuestListPage> {
     final matchesTitle =
         _selectedTitleFilter == null || guest.title == _selectedTitleFilter;
     final matchesDiet =
-        !_filterOnlyDiet ||
-        (guest.dietaryRestrictions != null &&
-            guest.dietaryRestrictions!.trim().isNotEmpty);
+      !_filterOnlyDiet || guest.dietaryRestrictions.isNotEmpty;
 
     return matchesSearch && matchesTitle && matchesDiet;
   }
@@ -320,12 +344,14 @@ class _GuestListPageState extends State<GuestListPage> {
     switch (_selectedSort) {
       case GuestSortOption.nameAscending:
         visibleGuests.sort(
-          (a, b) => a.fullName.toLowerCase().compareTo(b.fullName.toLowerCase()),
+          (a, b) =>
+              a.fullName.toLowerCase().compareTo(b.fullName.toLowerCase()),
         );
         break;
       case GuestSortOption.nameDescending:
         visibleGuests.sort(
-          (a, b) => b.fullName.toLowerCase().compareTo(a.fullName.toLowerCase()),
+          (a, b) =>
+              b.fullName.toLowerCase().compareTo(a.fullName.toLowerCase()),
         );
         break;
       case GuestSortOption.createdNewest:
@@ -344,15 +370,16 @@ class _GuestListPageState extends State<GuestListPage> {
   }
 
   String _sortLabel(GuestSortOption sort) {
+    final localizations = AppLocalizationsScope.of(context);
     switch (sort) {
       case GuestSortOption.nameAscending:
-        return 'Namn A-Ö';
+        return localizations.text('sort_name_asc');
       case GuestSortOption.nameDescending:
-        return 'Namn Ö-A';
+        return localizations.text('sort_name_desc');
       case GuestSortOption.createdNewest:
-        return 'Skapad senast';
+        return localizations.text('sort_created_newest');
       case GuestSortOption.createdOldest:
-        return 'Skapad först';
+        return localizations.text('sort_created_oldest');
     }
   }
 
@@ -379,11 +406,15 @@ class _GuestListPageState extends State<GuestListPage> {
   }
 
   Widget _buildGuestCard(Guest guest, bool isCompact) {
+    final localizations = AppLocalizationsScope.of(context);
     final isHost = _isHost(guest);
-    final role = guest.title.name;
-    final diet = guest.dietaryRestrictions?.trim().isNotEmpty == true
-        ? guest.dietaryRestrictions!
-        : 'Ingen';
+    final role = localizations.guestTitle(guest.title);
+    final hasDiet = guest.dietaryRestrictions.isNotEmpty;
+    final summaryParts = <String>[
+      '${localizations.text('guest_role')}: $role',
+      if (hasDiet) guest.dietaryRestrictions.join(', '),
+      '${localizations.text('relations')}: ${guest.relations.length}',
+    ];
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -418,7 +449,9 @@ class _GuestListPageState extends State<GuestListPage> {
               ),
               child: Icon(
                 isHost ? Icons.favorite : Icons.person_outline,
-                color: isHost ? const Color(0xFFC46C84) : const Color(0xFF77686D),
+                color: isHost
+                    ? const Color(0xFFC46C84)
+                    : const Color(0xFF77686D),
               ),
             ),
             const SizedBox(width: 12),
@@ -435,8 +468,9 @@ class _GuestListPageState extends State<GuestListPage> {
                         guest.fullName,
                         style: TextStyle(
                           fontSize: 17,
-                          fontWeight:
-                              isHost ? FontWeight.w700 : FontWeight.w600,
+                          fontWeight: isHost
+                              ? FontWeight.w700
+                              : FontWeight.w600,
                           color: const Color(0xFF24191D),
                         ),
                       ),
@@ -450,8 +484,8 @@ class _GuestListPageState extends State<GuestListPage> {
                             color: const Color(0xFFFDEDF2),
                             borderRadius: BorderRadius.circular(999),
                           ),
-                          child: const Text(
-                            'Värd',
+                          child: Text(
+                            localizations.text('host_badge'),
                             style: TextStyle(
                               color: Color(0xFFC46C84),
                               fontSize: 11,
@@ -464,7 +498,7 @@ class _GuestListPageState extends State<GuestListPage> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'Roll: $role · Kost: $diet · Relationer: ${guest.relations.length}',
+                    summaryParts.join(' · '),
                     style: const TextStyle(
                       color: Color(0xFF6E6166),
                       fontSize: 13,
@@ -490,13 +524,13 @@ class _GuestListPageState extends State<GuestListPage> {
                           break;
                       }
                     },
-                    itemBuilder: (context) => const [
+                    itemBuilder: (context) => [
                       PopupMenuItem(
                         value: 'relations',
-                        child: Text('Hantera relationer'),
+                        child: Text(localizations.text('manage_relations')),
                       ),
-                      PopupMenuItem(value: 'edit', child: Text('Redigera')),
-                      PopupMenuItem(value: 'delete', child: Text('Ta bort')),
+                      PopupMenuItem(value: 'edit', child: Text(localizations.text('edit'))),
+                      PopupMenuItem(value: 'delete', child: Text(localizations.text('delete'))),
                     ],
                   )
                 : Row(
@@ -507,7 +541,7 @@ class _GuestListPageState extends State<GuestListPage> {
                           Icons.people_alt_outlined,
                           color: Color(0xFF5778B1),
                         ),
-                        tooltip: 'Relationer',
+                        tooltip: localizations.text('manage_relations'),
                         onPressed: () => _manageRelationsDialog(guest),
                       ),
                       IconButton(
@@ -515,15 +549,16 @@ class _GuestListPageState extends State<GuestListPage> {
                           Icons.edit_outlined,
                           color: Color(0xFFC1834D),
                         ),
-                        tooltip: 'Redigera',
-                        onPressed: () => _openGuestFormDialog(guestToEdit: guest),
+                        tooltip: localizations.text('edit'),
+                        onPressed: () =>
+                            _openGuestFormDialog(guestToEdit: guest),
                       ),
                       IconButton(
                         icon: const Icon(
                           Icons.delete_outline,
                           color: Color(0xFFC25353),
                         ),
-                        tooltip: 'Ta bort',
+                        tooltip: localizations.text('delete'),
                         onPressed: () => _confirmDeleteDialog(guest),
                       ),
                     ],
@@ -540,6 +575,7 @@ class _GuestListPageState extends State<GuestListPage> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
+    final localizations = AppLocalizationsScope.of(context);
     final isCompact = MediaQuery.of(context).size.width < 700;
 
     final hostCount = guests
@@ -556,98 +592,12 @@ class _GuestListPageState extends State<GuestListPage> {
         backgroundColor: Colors.transparent,
         foregroundColor: const Color(0xFF24191D),
         elevation: 0,
-        title: Text('Värdar: $hostCount | Gäster: $guestCount'),
+        title: Text(localizations.text('hosts_and_guests', values: {
+          'hosts': '$hostCount',
+          'guests': '$guestCount',
+        })),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.ios_share_outlined),
-            tooltip: 'Exportera allt (Kopiera JSON)',
-            onPressed: () async {
-              if (_activeWedding != null) {
-                // Spara undan ScaffoldMessengerState synkront innan det asynkrona gapet
-                final messenger = ScaffoldMessenger.of(context);
-                final jsonStr = await StorageService.exportWeddingToClipboard(
-                  _activeWedding!.id,
-                );
-                await Clipboard.setData(ClipboardData(text: jsonStr));
-
-                // Använd den sparade referensen istället för att läsa BuildContext efter await
-                messenger.showSnackBar(
-                  const SnackBar(
-                    content: Text(
-                      '🚀 Hela bröllopsdatan har kopierats till urklipp! Skicka texten till din partner.',
-                    ),
-                  ),
-                );
-              }
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.file_download_outlined),
-            tooltip: 'Importera från JSON-text',
-            onPressed: () {
-              final importController = TextEditingController();
-              showDialog(
-                context: context,
-                builder: (dialogContext) => AlertDialog(
-                  title: const Text('Importera data'),
-                  content: TextField(
-                    controller: importController,
-                    maxLines: 6,
-                    decoration: const InputDecoration(
-                      hintText:
-                          'Klistra in JSON-koden du fick från din partner här...',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(dialogContext),
-                      child: const Text('Avbryt'),
-                    ),
-                    ElevatedButton(
-                      onPressed: () async {
-                        final text = importController.text.trim();
-                        if (text.isEmpty) return;
-
-                        // Spara undan navigeringstillsyner och meddelandepaneler synkront
-                        final navigator = Navigator.of(dialogContext);
-                        final messenger = ScaffoldMessenger.of(context);
-
-                        try {
-                          await StorageService.importWeddingFromJson(text);
-
-                          // Stäng dialogen direkt via den sparade synkrona referensen
-                          navigator.pop();
-
-                          // Ladda om statet för komponenten
-                          _loadData();
-
-                          messenger.showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                '🎉 Lyckad import! Allt är synkat.',
-                              ),
-                            ),
-                          );
-                        } catch (e) {
-                          // Om importen kraschar stänger vi inte dialogrutan utan visar bara felmeddelande
-                          messenger.showSnackBar(
-                            const SnackBar(
-                              backgroundColor: Colors.red,
-                              content: Text(
-                                '⚠️ Felaktig kod. Kunde inte läsa datan.',
-                              ),
-                            ),
-                          );
-                        }
-                      },
-                      child: const Text('Importera'),
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
+          const LanguageToggleButton(),
           IconButton(
             icon: const Icon(Icons.chair_alt),
             onPressed: () {
@@ -689,8 +639,8 @@ class _GuestListPageState extends State<GuestListPage> {
                 children: [
                   Row(
                     children: [
-                      const Text(
-                        'Guest List',
+                      Text(
+                        localizations.text('guest_list_title'),
                         style: TextStyle(
                           fontSize: 24,
                           fontWeight: FontWeight.w500,
@@ -702,17 +652,10 @@ class _GuestListPageState extends State<GuestListPage> {
                     ],
                   ),
                   const SizedBox(height: 14),
-                  TextField(
-                    decoration: InputDecoration(
-                      hintText: 'Sök i listan...',
-                      prefixIcon: const Icon(Icons.search),
-                      filled: true,
-                      fillColor: const Color(0xFFF7F3F4),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide: BorderSide.none,
-                      ),
-                    ),
+                  AppSearchField(
+                    hintText: localizations.text('search_placeholder'),
+                    filled: true,
+                    fillColor: const Color(0xFFF7F3F4),
                     onChanged: (val) => setState(() => _searchQuery = val),
                   ),
                   const SizedBox(height: 10),
@@ -723,11 +666,9 @@ class _GuestListPageState extends State<GuestListPage> {
                         : CrossAxisAlignment.center,
                     children: [
                       if (isCompact)
-                        DropdownButtonFormField<GuestSortOption>(
+                        AppDropdownFormField<GuestSortOption>(
                           initialValue: _selectedSort,
-                          decoration: const InputDecoration(
-                            labelText: 'Sortera',
-                          ),
+                          labelText: localizations.text('sort_label'),
                           items: GuestSortOption.values
                               .map(
                                 (sort) => DropdownMenuItem(
@@ -744,11 +685,9 @@ class _GuestListPageState extends State<GuestListPage> {
                         )
                       else
                         Expanded(
-                          child: DropdownButtonFormField<GuestSortOption>(
+                          child: AppDropdownFormField<GuestSortOption>(
                             initialValue: _selectedSort,
-                            decoration: const InputDecoration(
-                              labelText: 'Sortera',
-                            ),
+                            labelText: localizations.text('sort_label'),
                             items: GuestSortOption.values
                                 .map(
                                   (sort) => DropdownMenuItem(
@@ -769,20 +708,18 @@ class _GuestListPageState extends State<GuestListPage> {
                         height: isCompact ? 10 : 0,
                       ),
                       if (isCompact)
-                        DropdownButtonFormField<GuestTitle?>(
+                        AppDropdownFormField<GuestTitle?>(
                           initialValue: _selectedTitleFilter,
-                          decoration: const InputDecoration(
-                            labelText: 'Filtrera roll',
-                          ),
+                          labelText: localizations.text('filter_role_label'),
                           items: [
-                            const DropdownMenuItem<GuestTitle?>(
+                            DropdownMenuItem<GuestTitle?>(
                               value: null,
-                              child: Text('Alla roller'),
+                              child: Text(localizations.text('all_roles')),
                             ),
                             ...GuestTitle.values.map(
                               (title) => DropdownMenuItem<GuestTitle?>(
                                 value: title,
-                                child: Text(title.name),
+                                child: Text(localizations.guestTitle(title)),
                               ),
                             ),
                           ],
@@ -792,20 +729,18 @@ class _GuestListPageState extends State<GuestListPage> {
                         )
                       else
                         Expanded(
-                          child: DropdownButtonFormField<GuestTitle?>(
+                          child: AppDropdownFormField<GuestTitle?>(
                             initialValue: _selectedTitleFilter,
-                            decoration: const InputDecoration(
-                              labelText: 'Filtrera roll',
-                            ),
+                            labelText: localizations.text('filter_role_label'),
                             items: [
-                              const DropdownMenuItem<GuestTitle?>(
+                            DropdownMenuItem<GuestTitle?>(
                                 value: null,
-                                child: Text('Alla roller'),
+                                child: Text(localizations.text('all_roles')),
                               ),
                               ...GuestTitle.values.map(
                                 (title) => DropdownMenuItem<GuestTitle?>(
                                   value: title,
-                                  child: Text(title.name),
+                                  child: Text(localizations.guestTitle(title)),
                                 ),
                               ),
                             ],
@@ -822,24 +757,24 @@ class _GuestListPageState extends State<GuestListPage> {
                     runSpacing: 8,
                     children: [
                       FilterChip(
-                        label: const Text('Bara specialkost'),
+                        label: Text(localizations.text('only_dietary')),
                         selected: _filterOnlyDiet,
                         onSelected: (val) =>
                             setState(() => _filterOnlyDiet = val),
                       ),
-                      const Chip(
+                      Chip(
                         avatar: Icon(Icons.push_pin_outlined, size: 16),
-                        label: Text('Värdar är alltid pinnade överst'),
+                        label: Text(localizations.text('hosts_pinned')),
                       ),
                     ],
                   ),
                 ],
               ),
-              ),
+            ),
           ),
           Expanded(
             child: visibleGuests.isEmpty
-                ? const Center(child: Text('Inga träffar.'))
+                ? Center(child: Text(localizations.text('no_matches')))
                 : ListView.builder(
                     padding: EdgeInsets.fromLTRB(
                       14,
@@ -871,6 +806,7 @@ class _GuestListPageState extends State<GuestListPage> {
   }
 
   void _manageRelationsDialog(Guest currentGuest) {
+    final localizations = AppLocalizationsScope.of(context);
     showDialog(
       context: context,
       builder: (context) {
@@ -880,12 +816,15 @@ class _GuestListPageState extends State<GuestListPage> {
                 .where((g) => g.id != currentGuest.id)
                 .toList();
             return AlertDialog(
-              title: Text('Vem känner ${currentGuest.firstName}?'),
+              title: DialogTitleWithClose(
+                titleText: localizations.text('who_knows', values: {'name': currentGuest.firstName}),
+                onClose: () => Navigator.pop(context),
+              ),
               content: SizedBox(
                 width: double.maxFinite,
                 height: 300,
                 child: otherGuests.isEmpty
-                    ? const Center(child: Text('Här var det tomt.'))
+                    ? Center(child: Text(localizations.text('empty_list')))
                     : ListView.builder(
                         itemCount: otherGuests.length,
                         itemBuilder: (context, i) {
@@ -896,21 +835,21 @@ class _GuestListPageState extends State<GuestListPage> {
                           return ListTile(
                             title: Text(other.fullName),
                             trailing: DropdownButton<RelationType>(
-                              hint: const Text('Välj relation'),
+                              hint: Text(localizations.text('choose_relation')),
                               value: currentRelationType,
                               items: RelationType.values.map((type) {
                                 String label = type.name;
                                 if (type == RelationType.none) {
-                                  label = 'Ingen relation (Rensa)';
+                                  label = localizations.text('relation_none_label');
                                 }
                                 if (type == RelationType.partner) {
-                                  label = 'Partner (+1)';
+                                  label = localizations.text('relation_partner_label');
                                 }
                                 if (type == RelationType.friend) {
-                                  label = 'Vän';
+                                  label = localizations.text('relation_friend_label');
                                 }
                                 if (type == RelationType.avoid) {
-                                  label = 'Undvik placering';
+                                  label = localizations.text('relation_avoid_label');
                                 }
 
                                 return DropdownMenuItem(
@@ -941,12 +880,6 @@ class _GuestListPageState extends State<GuestListPage> {
                         },
                       ),
               ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('Klar'),
-                ),
-              ],
             );
           },
         );

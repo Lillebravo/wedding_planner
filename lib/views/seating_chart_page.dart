@@ -1,6 +1,24 @@
+﻿// ignore_for_file: unused_element
+
+import 'dart:math' as math;
+import 'dart:typed_data';
+import 'dart:ui' as ui;
+
+import 'package:file_saver/file_saver.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 import '../models/guest_model.dart';
+import '../l10n/app_localizations.dart';
 import '../services/storage_service.dart';
+import '../widgets/app_dropdown_form_field.dart';
+import '../widgets/app_labeled_text_field.dart';
+import '../widgets/app_search_field.dart';
+import '../widgets/dialog_action_buttons.dart';
+import '../widgets/dialog_title_with_close.dart';
+import '../widgets/language_toggle_button.dart';
+import 'table_floor_plan_page.dart';
 
 enum PlacementRuleId { friendAtTable, partnerAdjacent }
 
@@ -34,6 +52,8 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
   String _chartSearchQuery = '';
   GuestTitle? _chartTitleFilter;
   bool _isLoadingTables = true;
+  final GlobalKey _visualLayoutKey = GlobalKey();
+  final GlobalKey _tablesPaneKey = GlobalKey();
 
   List<Map<String, dynamic>> tables = [];
 
@@ -49,6 +69,28 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
       enabled: true,
     ),
   ];
+
+  String _placementRuleTitle(AppLocalizationsController localizations, PlacementRuleId id) {
+    return switch (id) {
+      PlacementRuleId.friendAtTable => localizations.text('auto_rule_friend'),
+      PlacementRuleId.partnerAdjacent => localizations.text('auto_rule_partner'),
+    };
+  }
+
+  String _shapeLabel(AppLocalizationsController localizations, String shape) {
+    switch (shape.toLowerCase()) {
+      case 'cirkel':
+      case 'circle':
+        return localizations.text('table_round');
+      case 'oval':
+        return localizations.text('table_oval');
+      case 'kvadrat':
+      case 'square':
+        return localizations.text('table_square');
+      default:
+        return localizations.text('table_rectangle');
+    }
+  }
 
   @override
   void initState() {
@@ -107,18 +149,175 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
     await StorageService.savePlacementRules(widget.weddingId, payload);
   }
 
+  String _dietText(Guest guest) {
+    final raw = guest.dietaryRestrictions.join(', ').trim();
+    return raw;
+  }
+
+  Future<void> _exportSeatingAsPng() async {
+    final localizations = AppLocalizationsScope.of(context);
+    final boundary = _tablesPaneKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+    if (boundary == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(localizations.text('export_png_failed'))),
+      );
+      return;
+    }
+
+    try {
+      final image = await boundary.toImage(pixelRatio: 3);
+      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      if (byteData == null) {
+        throw Exception('Tom bilddata.');
+      }
+
+      final pngBytes = byteData.buffer.asUint8List();
+      final fileName = 'bordsplacering_${DateTime.now().millisecondsSinceEpoch}';
+      await FileSaver.instance.saveFile(
+        name: fileName,
+        bytes: pngBytes,
+        fileExtension: 'png',
+        mimeType: MimeType.png,
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(localizations.text('exported_png'))),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${localizations.text('export_png_failed')}: $e')),
+      );
+    }
+  }
+
+  Future<void> _exportSeatingAsPdf() async {
+    final localizations = AppLocalizationsScope.of(context);
+    try {
+      final pdf = pw.Document();
+      final baseFont = await PdfGoogleFonts.notoSansRegular();
+      final boldFont = await PdfGoogleFonts.notoSansBold();
+
+      final sortedTables = [...tables]..sort(
+        (a, b) => (a['name']?.toString() ?? '').compareTo(b['name']?.toString() ?? ''),
+      );
+
+      pdf.addPage(
+        pw.MultiPage(
+          theme: pw.ThemeData.withFont(base: baseFont, bold: boldFont),
+          build: (context) {
+            final content = <pw.Widget>[
+              pw.Text(
+                localizations.text('seating_chart_title'),
+                style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold),
+              ),
+              pw.SizedBox(height: 8),
+              pw.Text('${DateTime.now()}'),
+              pw.SizedBox(height: 20),
+            ];
+
+            for (final table in sortedTables) {
+              final assignedGuests = List<Guest>.from(table['assigned'] as List<Guest>);
+              _sortAssignedBySeat(assignedGuests);
+
+              content.add(
+                pw.Container(
+                  margin: const pw.EdgeInsets.only(bottom: 14),
+                  padding: const pw.EdgeInsets.all(12),
+                  decoration: pw.BoxDecoration(
+                    border: pw.Border.all(width: 1),
+                    borderRadius: pw.BorderRadius.circular(4),
+                  ),
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text(
+                        '${table['name']} (${assignedGuests.length}/${table['seats']} ${localizations.text('table_plural')})',
+                        style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
+                      ),
+                      pw.SizedBox(height: 6),
+                      if (assignedGuests.isEmpty)
+                        pw.Text(localizations.text('no_seated_guests'))
+                      else
+                        pw.Column(
+                          crossAxisAlignment: pw.CrossAxisAlignment.start,
+                          children: assignedGuests
+                              .map(
+                                (g) => pw.Padding(
+                                  padding: const pw.EdgeInsets.symmetric(vertical: 2),
+                                  child: pw.Text(
+                                    '${g.seatNumber ?? '-'} ${g.fullName} | ${localizations.text('guest_role')}: ${localizations.guestTitle(g.title)}${g.dietaryRestrictions.isEmpty ? '' : ' | ${_dietText(g)}'}',
+                                  ),
+                                ),
+                              )
+                              .toList(),
+                        ),
+                    ],
+                  ),
+                ),
+              );
+            }
+
+            final unassignedGuests = widget.guests
+                .where((g) => !tables.any((t) => (t['assigned'] as List<Guest>).contains(g)));
+
+            if (unassignedGuests.isNotEmpty) {
+              content
+                ..add(pw.SizedBox(height: 8))
+                ..add(
+                  pw.Text(
+                    localizations.text('seating_chart_unassigned'),
+                    style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold),
+                  ),
+                )
+                ..add(pw.SizedBox(height: 6));
+
+              content.addAll(
+                unassignedGuests.map(
+                  (g) => pw.Text('${g.fullName} | ${localizations.text('guest_role')}: ${localizations.guestTitle(g.title)}${g.dietaryRestrictions.isEmpty ? '' : ' | ${_dietText(g)}'}'),
+                ),
+              );
+            }
+
+            return content;
+          },
+        ),
+      );
+
+      final pdfBytes = await pdf.save();
+      final fileName = 'bordsplacering_${DateTime.now().millisecondsSinceEpoch}';
+      await FileSaver.instance.saveFile(
+        name: fileName,
+        bytes: Uint8List.fromList(pdfBytes),
+        fileExtension: 'pdf',
+        mimeType: MimeType.pdf,
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(localizations.text('exported_pdf'))),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${localizations.text('seating_chart_export_pdf')}: $e')),
+      );
+    }
+  }
+
   Future<void> _loadTables() async {
     try {
       final dbTables = await StorageService.getTables(widget.weddingId);
 
       if (dbTables.isEmpty) {
-        // Om inga tabeller finns (edge case), skapa honnörsbordet lokalt
+        // Om inga tabeller finns (edge case), skapa honn├Ârsbordet lokalt
         if (!mounted) return;
         setState(() {
           tables = [
             {
               'id': 'local-honor-table-new',
-              'name': 'Honnörsbord',
+              'name': 'Honn├Ârsbord',
               'seats': 8,
               'shape': 'Rektangel',
               'assigned': <Guest>[],
@@ -130,7 +329,7 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
         return;
       }
 
-      // Ladda alla tabeller från Supabase
+      // Ladda alla tabeller fr├Ñn Supabase
       final loadedTables = dbTables
           .map(
             (t) => {
@@ -284,12 +483,22 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
     return score;
   }
 
+  int _tablePreferenceScore(Guest guest, List<Guest> assigned, int maxSeats) {
+    final knownCount = _knownGuestsAtTableCount(guest, assigned);
+    if (knownCount > 0) {
+      return (knownCount * 1000) - (assigned.length * 10);
+    }
+
+    return (-maxSeats * 100) - (assigned.length * 25);
+  }
+
   Future<void> _showPlacementSettingsDialog() async {
+    final localizations = AppLocalizationsScope.of(context);
     final updatedRules = _placementRules
         .map(
           (rule) => PlacementRuleSetting(
             id: rule.id,
-            title: rule.title,
+            title: _placementRuleTitle(localizations, rule.id),
             enabled: rule.enabled,
           ),
         )
@@ -300,16 +509,17 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) {
           return AlertDialog(
-            title: const Text('Inställningar för autoplacering'),
+            title: DialogTitleWithClose(
+              titleText: localizations.text('auto_placement_settings'),
+              onClose: () => Navigator.pop(dialogContext),
+            ),
             content: SizedBox(
               width: 460,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'Slå av/på regler och dra för att välja vilken regel som är viktigast.',
-                  ),
+                  Text(localizations.text('auto_placement_hint')),
                   const SizedBox(height: 12),
                   SizedBox(
                     height: 220,
@@ -330,7 +540,9 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
                           child: SwitchListTile(
                             value: rule.enabled,
                             title: Text(rule.title),
-                            subtitle: Text('Prioritet ${index + 1}'),
+                            subtitle: Text(
+                              localizations.text('priority', values: {'index': '${index + 1}'}),
+                            ),
                             secondary: const Icon(Icons.drag_indicator),
                             onChanged: (val) => setDialogState(() => rule.enabled = val),
                           ),
@@ -342,11 +554,8 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
               ),
             ),
             actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(dialogContext),
-                child: const Text('Avbryt'),
-              ),
-              ElevatedButton(
+              DialogConfirmButton(
+                label: localizations.text('save'),
                 onPressed: () async {
                   setState(() {
                     _placementRules
@@ -356,7 +565,6 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
                   Navigator.pop(dialogContext);
                   await _persistPlacementRules();
                 },
-                child: const Text('Spara'),
               ),
             ],
           );
@@ -365,8 +573,9 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
     );
   }
 
-  // Nu är metoden async och uppdaterar sätesnummer & databasen!
+  // Nu ├ñr metoden async och uppdaterar s├ñtesnummer & databasen!
   Future<void> _runPlacementAlgorithm() async {
+    final localizations = AppLocalizationsScope.of(context);
     setState(() {
       final hosts = widget.guests
           .where((g) => g.title == GuestTitle.bride || g.title == GuestTitle.groom)
@@ -413,7 +622,10 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
           SnackBar(
             backgroundColor: Colors.red[700],
             content: Text(
-              '⚠️ Det finns inte tillräckligt med bord! Det saknas ${unassigned.length - totalAvailableSeats} platser.',
+              localizations.text(
+                'placement_not_enough_seats',
+                values: {'count': '${unassigned.length - totalAvailableSeats}'},
+              ),
             ),
             duration: const Duration(seconds: 4),
           ),
@@ -431,6 +643,7 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
         int bestSeat = -1;
         int bestScore = -1;
         int bestKnownCount = -1;
+        int bestTablePreference = -1 << 30;
 
         for (int tableIndex = 0; tableIndex < tables.length; tableIndex++) {
           final table = tables[tableIndex];
@@ -444,6 +657,7 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
             if (_hasAvoidConflict(guest, assigned)) continue;
 
             final knownCount = _knownGuestsAtTableCount(guest, assigned);
+            final tablePreference = _tablePreferenceScore(guest, assigned, maxSeats);
 
             for (int candidateSeat = 1; candidateSeat <= assigned.length + 1; candidateSeat++) {
               final score = _placementScore(guest, assigned, candidateSeat, isCircularTable);
@@ -452,6 +666,10 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
                   (score == bestScore && knownCount > bestKnownCount) ||
                   (score == bestScore &&
                       knownCount == bestKnownCount &&
+                      tablePreference > bestTablePreference) ||
+                  (score == bestScore &&
+                      knownCount == bestKnownCount &&
+                      tablePreference == bestTablePreference &&
                       bestGuest != null &&
                       guest.relations.length > bestGuest.relations.length) ||
                   (bestGuest == null);
@@ -459,6 +677,7 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
               if (isBetter) {
                 bestScore = score;
                 bestKnownCount = knownCount;
+                bestTablePreference = tablePreference;
                 bestGuest = guest;
                 bestTableIndex = tableIndex;
                 bestSeat = candidateSeat;
@@ -475,26 +694,7 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
         }
       }
 
-      // Fördela om ensamma gäster
-      for (var table in tables) {
-        List<Guest> assigned = table['assigned'] as List<Guest>;
-        if (assigned.length == 1 && widget.guests.length > 1) {
-          Guest loneWolf = assigned.first;
-          if (!loneWolf.isLocked) {
-            for (var otherTable in tables) {
-              if (otherTable['id'] == table['id']) continue;
-              List<Guest> otherAssigned = otherTable['assigned'] as List<Guest>;
-              if (otherAssigned.length < (otherTable['seats'] as int)) {
-                assigned.clear();
-                otherAssigned.add(loneWolf);
-                break;
-              }
-            }
-          }
-        }
-      }
-
-      // Ge alla gäster korrekta sätesnummer och tableId
+      // Ge alla g├ñster korrekta s├ñtesnummer och tableId
       for (var table in tables) {
         List<Guest> assigned = table['assigned'] as List<Guest>;
         _sortAssignedBySeat(assigned);
@@ -507,19 +707,23 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
     try {
       await StorageService.saveGuests(widget.weddingId, widget.guests);
       messenger.showSnackBar(
-        const SnackBar(content: Text('✅ Autoplacering slutförd och sparad i molnet!')),
+        SnackBar(content: Text(localizations.text('placement_running'))),
       );
     } catch (e) {
       messenger.showSnackBar(
-        SnackBar(backgroundColor: Colors.red, content: Text('Ett fel uppstod: $e')),
+        SnackBar(
+          backgroundColor: Colors.red,
+          content: Text(localizations.text('error_with_message', values: {'error': '$e'})),
+        ),
       );
     }
   }
 
   void _openTableFormDialog({Map<String, dynamic>? tableToEdit}) {
+    final localizations = AppLocalizationsScope.of(context);
     final isEditing = tableToEdit != null;
     final nameCtrl = TextEditingController(
-      text: isEditing ? tableToEdit['name'] : 'Bord ${tables.length + 1}',
+      text: isEditing ? tableToEdit['name'] : '${localizations.text('add_table')} ${tables.length + 1}',
     );
     final seatsCtrl = TextEditingController(
       text: isEditing ? tableToEdit['seats'].toString() : '8',
@@ -544,50 +748,61 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
           }).toList();
 
           return AlertDialog(
-            title: Text(isEditing ? 'Redigera bord' : 'Skapa nytt bord'),
+            title: DialogTitleWithClose(
+              titleText: localizations.text(isEditing ? 'edit_table' : 'create_table'),
+              onClose: () => Navigator.pop(dialogContext),
+            ),
             content: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  TextField(
+                  AppLabeledTextField(
                     controller: nameCtrl,
-                    decoration: const InputDecoration(labelText: 'Bordsnamn *'),
+                    labelText: '${localizations.text('table_name')} *',
                   ),
-                  TextField(
+                  AppLabeledTextField(
                     controller: seatsCtrl,
-                    decoration: const InputDecoration(labelText: 'Antal sittplatser *'),
+                    labelText: '${localizations.text('table_seats')} *',
                     keyboardType: TextInputType.number,
                     onChanged: (_) => setDialogState(() {}),
                   ),
-                  DropdownButtonFormField<String>(
+                  AppDropdownFormField<String>(
                     initialValue: selectedShape,
-                    decoration: const InputDecoration(labelText: 'Bordsform'),
+                    labelText: localizations.text('table_shape'),
                     items: ['Kvadrat', 'Rektangel', 'Cirkel', 'Oval']
-                        .map((s) => DropdownMenuItem(value: s, child: Text(s)))
+                        .map(
+                          (s) => DropdownMenuItem(
+                            value: s,
+                            child: Text(_shapeLabel(localizations, s)),
+                          ),
+                        )
                         .toList(),
                     onChanged: (val) => setDialogState(() => selectedShape = val!),
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    'Placerade gäster (${currentAssigned.length} / $maxSeatsAllowed)',
+                    '${localizations.text('seating_chart_assigned_guests')} (${currentAssigned.length} / $maxSeatsAllowed)',
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       color: isOverflown ? Colors.red : Colors.black,
                     ),
                   ),
                   if (isOverflown) ...[
-                    const Text(
-                      '⚠️ För många gäster! Ta bort gäster nedan innan du sparar.',
-                      style: TextStyle(color: Colors.red, fontSize: 12),
+                    Text(
+                      localizations.text('seating_chart_too_many_guests_warning'),
+                      style: const TextStyle(color: Colors.red, fontSize: 12),
                     ),
                   ],
                   SizedBox(
                     width: double.maxFinite,
                     height: 120,
                     child: currentAssigned.isEmpty
-                        ? const Center(
-                            child: Text('Bordet är tomt.', style: TextStyle(color: Colors.grey)),
+                        ? Center(
+                            child: Text(
+                              localizations.text('table_empty'),
+                              style: const TextStyle(color: Colors.grey),
+                            ),
                           )
                         : ListView.builder(
                             itemCount: currentAssigned.length,
@@ -613,7 +828,7 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
                   const Divider(),
                   if (currentAssigned.length < maxSeatsAllowed) ...[
                     DropdownButton<Guest>(
-                      hint: const Text('Sätt direkt vid bordet...'),
+                      hint: Text(localizations.text('seating_chart_assign_directly')),
                       isExpanded: true,
                       items: availableGuests
                           .map((g) => DropdownMenuItem(value: g, child: Text(g.fullName)))
@@ -629,11 +844,8 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
               ),
             ),
             actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(dialogContext),
-                child: const Text('Avbryt'),
-              ),
-              ElevatedButton(
+              DialogConfirmButton(
+                label: localizations.text('save'),
                 onPressed: (isOverflown || nameCtrl.text.isEmpty || maxSeatsAllowed <= 0)
                     ? null
                     : () async {
@@ -677,7 +889,6 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
                         }
                         await StorageService.saveGuests(widget.weddingId, widget.guests);
                       },
-                child: const Text('Spara'),
               ),
             ],
           );
@@ -687,18 +898,24 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
   }
 
   void _confirmDeleteTable(Map<String, dynamic> table) {
+    final localizations = AppLocalizationsScope.of(context);
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Ta bort bord?'),
-        content: Text('Är du säker på att du vill ta bort ${table['name']}? Alla gäster blir oplacerade.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Avbryt'),
+        title: DialogTitleWithClose(
+          titleText: localizations.text('delete_table'),
+          onClose: () => Navigator.pop(dialogContext),
+        ),
+        content: Text(
+          localizations.text(
+            'seating_chart_delete_table_confirm',
+            values: {'name': '${table['name']}'},
           ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+        ),
+        actions: [
+          DialogConfirmButton(
+            label: localizations.text('delete'),
+            destructive: true,
             onPressed: () async {
               Navigator.of(dialogContext).pop();
               setState(() {
@@ -712,7 +929,6 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
               await StorageService.deleteTable(table['id']);
               await StorageService.saveGuests(widget.weddingId, widget.guests);
             },
-            child: const Text('Ta bort', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
@@ -720,10 +936,11 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
   }
 
   Widget _buildTablesPane() {
+    final localizations = AppLocalizationsScope.of(context);
     return Container(
       color: Colors.grey[200],
       child: tables.isEmpty
-          ? const Center(child: Text('Inga bord skapade.'))
+          ? Center(child: Text(localizations.text('no_tables')))
           : ListView.builder(
               padding: const EdgeInsets.all(16),
               itemCount: tables.length,
@@ -736,7 +953,7 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
                   onAcceptWithDetails: (details) async {
                     if (assignedGuests.length >= table['seats']) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Bordet är fullt!')),
+                        SnackBar(content: Text(localizations.text('table_full'))),
                       );
                       return;
                     }
@@ -771,7 +988,7 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
                               children: [
                                 Expanded(
                                   child: Text(
-                                    '${table['name']} (${table['shape']} - ${assignedGuests.length}/${table['seats']} stolar)',
+                                    '${table['name']} (${_shapeLabel(localizations, '${table['shape']}')} - ${assignedGuests.length}/${table['seats']} ${localizations.text('table_plural')})',
                                     style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
@@ -868,9 +1085,12 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
                                 ),
                               ),
                             if (assignedGuests.isEmpty)
-                              const Padding(
-                                padding: EdgeInsets.all(8.0),
-                                child: Text('Dra gäster hit...', style: TextStyle(color: Colors.grey)),
+                              Padding(
+                                padding: const EdgeInsets.all(8.0),
+                                child: Text(
+                                  localizations.text('seating_chart_drag_guests_here'),
+                                  style: const TextStyle(color: Colors.grey),
+                                ),
                               ),
                           ],
                         ),
@@ -884,6 +1104,7 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
   }
 
   Widget _buildUnassignedPane(List<Guest> unassignedGuests, {required bool isCompact}) {
+    final localizations = AppLocalizationsScope.of(context);
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -894,31 +1115,33 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Padding(
-            padding: EdgeInsets.fromLTRB(16, 16, 16, 4),
-            child: Text('Oplacerade personer', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+            child: Text(
+              localizations.text('seating_chart_unassigned_people'),
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 4.0),
-            child: TextField(
-              decoration: const InputDecoration(
-                labelText: 'Sök efter namn...',
-                prefixIcon: Icon(Icons.search, size: 20),
-                isDense: true,
-              ),
+            child: AppSearchField(
+              hintText: localizations.text('search_placeholder'),
+              dense: true,
               onChanged: (val) => setState(() => _chartSearchQuery = val),
             ),
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 4.0),
-            child: DropdownButtonFormField<GuestTitle>(
+            child: AppDropdownFormField<GuestTitle?>(
               initialValue: _chartTitleFilter,
-              decoration: const InputDecoration(labelText: 'Filtrera efter roll'),
+              labelText: localizations.text('filter_role_label'),
               isExpanded: true,
               isDense: true,
               items: [
-                const DropdownMenuItem(value: null, child: Text('Alla roller')),
-                ...GuestTitle.values.map((t) => DropdownMenuItem(value: t, child: Text(t.name))),
+                DropdownMenuItem(value: null, child: Text(localizations.text('all_roles'))),
+                ...GuestTitle.values.map(
+                  (t) => DropdownMenuItem(value: t, child: Text(localizations.guestTitle(t))),
+                ),
               ],
               onChanged: (val) => setState(() => _chartTitleFilter = val),
             ),
@@ -934,8 +1157,11 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
                 }).toList();
 
                 if (menuList.isEmpty) {
-                  return const Center(
-                    child: Text('Inga personer matchar.', style: TextStyle(color: Colors.grey)),
+                  return Center(
+                    child: Text(
+                      localizations.text('no_matches'),
+                      style: const TextStyle(color: Colors.grey),
+                    ),
                   );
                 }
 
@@ -967,7 +1193,7 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
                             guest.fullName,
                             style: TextStyle(fontWeight: isHost ? FontWeight.bold : FontWeight.normal),
                           ),
-                          subtitle: Text(guest.title.name),
+                          subtitle: Text(localizations.guestTitle(guest.title)),
                           leading: const Icon(Icons.drag_indicator),
                           trailing: IconButton(
                             icon: Icon(guest.isLocked ? Icons.lock : Icons.lock_open),
@@ -989,6 +1215,439 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
     );
   }
 
+  Widget _buildSpeechBubble(String text, {required bool alignRight}) {
+    return Column(
+      crossAxisAlignment: alignRight ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+      children: [
+        Container(
+          constraints: const BoxConstraints(maxWidth: 160),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: const Color(0xFFDADADA)),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x18000000),
+                blurRadius: 8,
+                offset: Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Text(
+            text,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 11),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Size _visualTableSizeForShape(String shape, int seatCount) {
+    final capacityScale = (0.92 + (seatCount * 0.03)).clamp(0.92, 1.42);
+    switch (shape) {
+      case 'cirkel':
+        return Size(150 * capacityScale, 150 * capacityScale);
+      case 'oval':
+        return Size(210 * capacityScale, 135 * capacityScale);
+      case 'kvadrat':
+        return Size(150 * capacityScale, 150 * capacityScale);
+      default:
+        return Size(220 * capacityScale, 130 * capacityScale);
+    }
+  }
+
+  List<int> _rectangularSeatDistribution(int seatCount, Size tableSize) {
+    if (seatCount <= 0) return const [0, 0, 0, 0];
+
+    final weights = [tableSize.width, tableSize.height, tableSize.width, tableSize.height];
+    final totalWeight = weights.fold<double>(0.0, (sum, weight) => sum + weight);
+    final rawCounts = weights.map((weight) => seatCount * weight / totalWeight).toList();
+    final counts = rawCounts.map((value) => value.floor()).toList();
+
+    int remainder = seatCount - counts.fold<int>(0, (sum, value) => sum + value);
+    final remainderOrder = List<int>.generate(4, (index) => index)
+      ..sort((a, b) {
+        final aFraction = rawCounts[a] - counts[a];
+        final bFraction = rawCounts[b] - counts[b];
+        return bFraction.compareTo(aFraction);
+      });
+
+    for (final index in remainderOrder) {
+      if (remainder <= 0) break;
+      counts[index] += 1;
+      remainder -= 1;
+    }
+
+    return counts;
+  }
+
+  List<double> _centeredSideOffsets(int count, double availableLength) {
+    if (count <= 1) return const [0.0];
+
+    final fillFactor = switch (count) {
+      2 => 0.78,
+      3 => 0.84,
+      4 => 0.88,
+      _ => 0.92,
+    };
+    final totalSpan = availableLength * fillFactor;
+    final spacing = totalSpan / (count - 1);
+    final start = -totalSpan / 2;
+
+    return List<double>.generate(count, (index) => start + (index * spacing));
+  }
+
+  Offset _seatCenterForShape({
+    required String shape,
+    required Offset tableCenter,
+    required Size tableSize,
+    required int seatIndex,
+    required int seatCount,
+    required double seatRadius,
+  }) {
+    if (seatCount <= 0) return tableCenter;
+
+    final normalizedShape = shape.toLowerCase();
+    final progress = ((seatIndex + 0.5) / seatCount).clamp(0.0, 1.0);
+
+    if (normalizedShape == 'cirkel' || normalizedShape == 'oval') {
+      final angle = (-math.pi / 2) + (2 * math.pi * progress);
+      final orbitRadiusX = (tableSize.width / 2) + seatRadius;
+      final orbitRadiusY = (tableSize.height / 2) + seatRadius;
+      return Offset(
+        tableCenter.dx + orbitRadiusX * math.cos(angle),
+        tableCenter.dy + orbitRadiusY * math.sin(angle),
+      );
+    }
+
+    // För kantiga bord fördelas platserna efter sidornas längd så att långsidor får fler platser.
+    final seatsPerSide = _rectangularSeatDistribution(seatCount, tableSize);
+
+    final halfWidth = tableSize.width / 2;
+    final halfHeight = tableSize.height / 2;
+    final sideOffset = seatRadius;
+
+    final sideHorizontalInset = math.min(tableSize.width * 0.28, 40.0);
+    final sideVerticalInset = math.min(tableSize.height * 0.28, 34.0);
+    final topBottomAvailable = math.max(0.0, tableSize.width - (2 * sideHorizontalInset));
+    final leftRightAvailable = math.max(0.0, tableSize.height - (2 * sideVerticalInset));
+
+    int resolvedSeatIndex = seatIndex.clamp(0, seatCount - 1);
+
+    // Top (vänster -> höger)
+    if (resolvedSeatIndex < seatsPerSide[0]) {
+      final count = seatsPerSide[0];
+      final offsets = _centeredSideOffsets(count, topBottomAvailable);
+      final x = (tableCenter.dx + offsets[resolvedSeatIndex]).clamp(
+        tableCenter.dx - halfWidth + sideHorizontalInset,
+        tableCenter.dx + halfWidth - sideHorizontalInset,
+      );
+      return Offset(x, tableCenter.dy - halfHeight - sideOffset);
+    }
+    resolvedSeatIndex -= seatsPerSide[0];
+
+    // Höger (topp -> botten)
+    if (resolvedSeatIndex < seatsPerSide[1]) {
+      final count = seatsPerSide[1];
+      final offsets = _centeredSideOffsets(count, leftRightAvailable);
+      final y = (tableCenter.dy + offsets[resolvedSeatIndex]).clamp(
+        tableCenter.dy - halfHeight + sideVerticalInset,
+        tableCenter.dy + halfHeight - sideVerticalInset,
+      );
+      return Offset(tableCenter.dx + halfWidth + sideOffset, y);
+    }
+    resolvedSeatIndex -= seatsPerSide[1];
+
+    // Botten (höger -> vänster)
+    if (resolvedSeatIndex < seatsPerSide[2]) {
+      final count = seatsPerSide[2];
+      final offsets = _centeredSideOffsets(count, topBottomAvailable).reversed.toList();
+      final x = (tableCenter.dx + offsets[resolvedSeatIndex]).clamp(
+        tableCenter.dx - halfWidth + sideHorizontalInset,
+        tableCenter.dx + halfWidth - sideHorizontalInset,
+      );
+      return Offset(x, tableCenter.dy + halfHeight + sideOffset);
+    }
+    resolvedSeatIndex -= seatsPerSide[2];
+
+    // Vänster (botten -> topp)
+    final count = seatsPerSide[3];
+    final offsets = _centeredSideOffsets(count, leftRightAvailable).reversed.toList();
+    final y = (tableCenter.dy + offsets[resolvedSeatIndex]).clamp(
+      tableCenter.dy - halfHeight + sideVerticalInset,
+      tableCenter.dy + halfHeight - sideVerticalInset,
+    );
+    return Offset(tableCenter.dx - halfWidth - sideOffset, y);
+  }
+
+  Widget _buildVisualTableCard(Map<String, dynamic> table) {
+    final localizations = AppLocalizationsScope.of(context);
+    final assignedGuests = List<Guest>.from(table['assigned'] as List<Guest>);
+    _sortAssignedBySeat(assignedGuests);
+    final shape = (table['shape']?.toString() ?? 'Rektangel').toLowerCase();
+    final seatCapacity = (table['seats'] as int?) ?? assignedGuests.length;
+    final centerShapeSize = _visualTableSizeForShape(shape, seatCapacity);
+    final borderRadius = switch (shape) {
+      'cirkel' => BorderRadius.circular(200),
+      'oval' => BorderRadius.circular(999),
+      'kvadrat' => BorderRadius.circular(16),
+      _ => BorderRadius.circular(16),
+    };
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final availableWidth = constraints.maxWidth.isFinite ? constraints.maxWidth : 520.0;
+        final canvasWidth = math.min(availableWidth - 24, 560.0).clamp(340.0, 560.0);
+
+        final center = Offset(canvasWidth / 2, canvasWidth * 0.42);
+        final scale = canvasWidth / 520;
+        final scaledShapeSize = Size(
+          centerShapeSize.width * scale,
+          centerShapeSize.height * scale,
+        );
+        final seatDiameter = (30 * scale).clamp(20.0, 32.0);
+        final seatRadius = seatDiameter / 2;
+        final bubbleWidth = (160 * scale).clamp(120.0, 180.0);
+        final bubbleHeight = (58 * scale).clamp(44.0, 64.0);
+        final bubbleOffset = math.max((scaledShapeSize.shortestSide * 0.18), 28.0);
+        final canvasHeight = math.max(
+          (canvasWidth * 0.88).clamp(300.0, 500.0),
+          scaledShapeSize.height + bubbleHeight + (bubbleOffset * 2.8),
+        );
+
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFFE6E6E6)),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x14000000),
+                blurRadius: 10,
+                offset: Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${table['name']} (${_shapeLabel(localizations, '${table['shape']}')})',
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '${assignedGuests.length}/${table['seats']} ${localizations.text('table_plural')}',
+                style: TextStyle(color: Colors.grey[700]),
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: canvasWidth,
+                height: canvasHeight,
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Positioned(
+                      left: center.dx - scaledShapeSize.width / 2,
+                      top: center.dy - scaledShapeSize.height / 2,
+                      child: Container(
+                        width: scaledShapeSize.width,
+                        height: scaledShapeSize.height,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFBF0F3),
+                          borderRadius: borderRadius,
+                          border: Border.all(color: const Color(0xFFE8C4D0), width: 2),
+                        ),
+                        child: Center(
+                          child: Text(
+                            table['name']?.toString() ?? localizations.text('add_table'),
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ),
+                    ),
+                    if (assignedGuests.isEmpty)
+                      Positioned(
+                        left: center.dx - 56,
+                        top: center.dy - 10,
+                        child: Text(
+                          localizations.text('no_seated_guests'),
+                          style: TextStyle(color: Colors.grey[600]),
+                        ),
+                      ),
+                    ...List.generate(assignedGuests.length, (index) {
+                      final guest = assignedGuests[index];
+                      final seatCenter = _seatCenterForShape(
+                        shape: shape,
+                        tableCenter: center,
+                        tableSize: scaledShapeSize,
+                        seatIndex: index,
+                        seatCount: math.max(seatCapacity, 1),
+                        seatRadius: seatRadius,
+                      );
+
+                      final seatVector = seatCenter - center;
+                      final seatVectorLength = seatVector.distance;
+                      final direction = seatVectorLength == 0
+                          ? const Offset(0, -1)
+                          : Offset(seatVector.dx / seatVectorLength, seatVector.dy / seatVectorLength);
+
+                      final bubbleCenter = seatCenter + direction * (seatRadius + bubbleOffset);
+                      final alignRight = direction.dx < 0;
+                      final clampedBubbleLeft = (bubbleCenter.dx - (alignRight ? bubbleWidth : 0))
+                          .clamp(0.0, canvasWidth - bubbleWidth);
+                      final clampedBubbleTop = (bubbleCenter.dy - bubbleHeight / 2)
+                          .clamp(0.0, canvasHeight - bubbleHeight);
+
+                      final bubbleEdgePoint = alignRight
+                          ? Offset(clampedBubbleLeft + bubbleWidth, clampedBubbleTop + bubbleHeight / 2)
+                          : Offset(clampedBubbleLeft, clampedBubbleTop + bubbleHeight / 2);
+
+                      final connectorLength = math.max(
+                        0.0,
+                        (seatCenter - bubbleEdgePoint).distance - seatRadius,
+                      );
+                      final connectorAngle = math.atan2(
+                        bubbleEdgePoint.dy - seatCenter.dy,
+                        bubbleEdgePoint.dx - seatCenter.dx,
+                      );
+
+                      return Stack(
+                        children: [
+                          Positioned(
+                            left: seatCenter.dx,
+                            top: seatCenter.dy - 1,
+                            child: Transform.rotate(
+                              angle: connectorAngle,
+                              alignment: Alignment.centerLeft,
+                              child: Container(
+                                width: connectorLength,
+                                height: 2,
+                                color: const Color(0xFFCFCFCF),
+                              ),
+                            ),
+                          ),
+                          Positioned(
+                            left: seatCenter.dx - seatDiameter / 2,
+                            top: seatCenter.dy - seatDiameter / 2,
+                            child: Container(
+                              width: seatDiameter,
+                              height: seatDiameter,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: guest.isLocked ? const Color(0xFFFFD8A8) : const Color(0xFFDDE7FF),
+                                border: Border.all(
+                                  color: guest.isLocked
+                                      ? const Color(0xFFE39B3A)
+                                      : const Color(0xFF90A9E8),
+                                ),
+                              ),
+                              child: Center(
+                                child: Text(
+                                  '${guest.seatNumber ?? index + 1}',
+                                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+                                ),
+                              ),
+                            ),
+                          ),
+                          Positioned(
+                            left: clampedBubbleLeft,
+                            top: clampedBubbleTop,
+                            child: _buildSpeechBubble(
+                              guest.dietaryRestrictions.isEmpty
+                                  ? guest.fullName
+                                  : '${guest.fullName}\n${_dietText(guest)}',
+                              alignRight: alignRight,
+                            ),
+                          ),
+                        ],
+                      );
+                    }),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildVisualSeatingLayout() {
+    final localizations = AppLocalizationsScope.of(context);
+    final sortedTables = [...tables]..sort(
+      (a, b) => (a['name']?.toString() ?? '').compareTo(b['name']?.toString() ?? ''),
+    );
+
+    return RepaintBoundary(
+      key: _visualLayoutKey,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF7F7F7),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              localizations.text('seating_chart_visual_title'),
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    localizations.text('seating_chart_visual_description'),
+                    style: TextStyle(color: Colors.grey[700]),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                TextButton.icon(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => TableFloorPlanPage(weddingId: widget.weddingId),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.grid_on),
+                  label: Text(localizations.text('seating_chart_open_floor_plan')),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Expanded(
+              child: ListView.separated(
+                itemCount: sortedTables.length,
+                separatorBuilder: (context, index) => const SizedBox(height: 12),
+                itemBuilder: (context, index) {
+                  return _buildVisualTableCard(sortedTables[index]);
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTablesPaneWithExport() {
+    return RepaintBoundary(
+      key: _tablesPaneKey,
+      child: _buildTablesPane(),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoadingTables) {
@@ -1005,30 +1664,56 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Bordsplacering'),
+        title: Text(AppLocalizationsScope.of(context).text('seating_chart_title')),
         actions: [
+          const LanguageToggleButton(),
+          const SizedBox(width: 8),
+          if (!isCompact)
+            IconButton(
+              icon: const Icon(Icons.picture_as_pdf),
+              tooltip: AppLocalizationsScope.of(context).text('seating_chart_export_pdf'),
+              onPressed: _exportSeatingAsPdf,
+            ),
+          if (!isCompact)
+            IconButton(
+              icon: const Icon(Icons.image),
+              tooltip: AppLocalizationsScope.of(context).text('seating_chart_export_png'),
+              onPressed: _exportSeatingAsPng,
+            ),
           if (isCompact)
             IconButton(
               icon: const Icon(Icons.auto_awesome),
-              tooltip: 'Autoplacera',
+              tooltip: AppLocalizationsScope.of(context).text('auto_placement_settings'),
               onPressed: _runPlacementAlgorithm,
             )
           else
             ElevatedButton.icon(
               icon: const Icon(Icons.auto_awesome),
-              label: const Text('Autoplacera'),
+              label: Text(AppLocalizationsScope.of(context).text('auto_placement_settings')),
               onPressed: _runPlacementAlgorithm,
             ),
           IconButton(
             icon: const Icon(Icons.tune),
-            tooltip: 'Inställningar för autoplacering',
+            tooltip: AppLocalizationsScope.of(context).text('auto_placement_settings'),
             onPressed: _showPlacementSettingsDialog,
+          ),
+          IconButton(
+            icon: const Icon(Icons.grid_on),
+            tooltip: AppLocalizationsScope.of(context).text('table_floor_plan_title'),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => TableFloorPlanPage(weddingId: widget.weddingId),
+                ),
+              );
+            },
           ),
           if (!isCompact)
             const SizedBox(width: 8),
           IconButton(
             icon: const Icon(Icons.add_box),
-            tooltip: 'Skapa nytt bord',
+            tooltip: AppLocalizationsScope.of(context).text('add_table'),
             onPressed: () => _openTableFormDialog(),
           ),
           if (!isCompact) const SizedBox(width: 10),
@@ -1041,12 +1726,16 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
                   height: 280,
                   child: _buildUnassignedPane(unassignedGuests, isCompact: true),
                 ),
-                Expanded(child: _buildTablesPane()),
+                Expanded(child: _buildTablesPaneWithExport()),
               ],
             )
           : Row(
               children: [
-                Expanded(flex: 3, child: _buildTablesPane()),
+                Expanded(
+                  flex: 3,
+                  child: _buildTablesPaneWithExport(),
+                ),
+                const VerticalDivider(width: 1),
                 Expanded(
                   flex: 1,
                   child: _buildUnassignedPane(unassignedGuests, isCompact: false),
