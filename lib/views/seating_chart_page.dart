@@ -35,15 +35,7 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
   GuestTitle? _chartTitleFilter;
   bool _isLoadingTables = true;
 
-  List<Map<String, dynamic>> tables = [
-    {
-      'id': 'local-honor-table',
-      'name': 'Honnörsbord',
-      'seats': 8,
-      'shape': 'Rektangel',
-      'assigned': <Guest>[],
-    },
-  ];
+  List<Map<String, dynamic>> tables = [];
 
   final List<PlacementRuleSetting> _placementRules = [
     PlacementRuleSetting(
@@ -119,6 +111,26 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
     try {
       final dbTables = await StorageService.getTables(widget.weddingId);
 
+      if (dbTables.isEmpty) {
+        // Om inga tabeller finns (edge case), skapa honnörsbordet lokalt
+        if (!mounted) return;
+        setState(() {
+          tables = [
+            {
+              'id': 'local-honor-table-new',
+              'name': 'Honnörsbord',
+              'seats': 8,
+              'shape': 'Rektangel',
+              'assigned': <Guest>[],
+            }
+          ];
+          _prePlaceLockedGuests();
+          _isLoadingTables = false;
+        });
+        return;
+      }
+
+      // Ladda alla tabeller från Supabase
       final loadedTables = dbTables
           .map(
             (t) => {
@@ -131,40 +143,18 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
           )
           .toList();
 
-      if (loadedTables.isEmpty) {
-        loadedTables.add({
-          'id': 'local-honor-table',
-          'name': 'Honnörsbord',
-          'seats': 8,
-          'shape': 'Rektangel',
-          'assigned': <Guest>[],
-        });
-      }
-
       if (!mounted) return;
       setState(() {
         tables = loadedTables;
-        _syncHonorTableIdFromGuests();
         _prePlaceLockedGuests();
         _isLoadingTables = false;
       });
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Error loading tables: $e');
       if (!mounted) return;
       setState(() {
-        _syncHonorTableIdFromGuests();
-        _prePlaceLockedGuests();
         _isLoadingTables = false;
       });
-    }
-  }
-
-  void _syncHonorTableIdFromGuests() {
-    for (final guest in widget.guests) {
-      final normalizedTableId = StorageService.normalizeUuidOrNull(guest.tableId);
-      if (normalizedTableId != null) {
-        tables[0]['id'] = normalizedTableId;
-        return;
-      }
     }
   }
 
@@ -211,37 +201,74 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
     }
   }
 
+  bool _isPartnerRelation(Guest a, Guest b) {
+    return a.relations[b.id] == RelationType.partner || b.relations[a.id] == RelationType.partner;
+  }
+
+  bool _isFriendOrPartner(Guest a, Guest b) {
+    final forward = a.relations[b.id];
+    final reverse = b.relations[a.id];
+    return forward == RelationType.friend ||
+        forward == RelationType.partner ||
+        reverse == RelationType.friend ||
+        reverse == RelationType.partner;
+  }
+
+  int _knownGuestsAtTableCount(Guest guest, List<Guest> assigned) {
+    return assigned.where((seated) => _isFriendOrPartner(guest, seated)).length;
+  }
+
+  bool _hasAvoidConflict(Guest guest, List<Guest> assigned) {
+    for (final seated in assigned) {
+      if (guest.relations[seated.id] == RelationType.avoid ||
+          seated.relations[guest.id] == RelationType.avoid) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   bool _matchesPlacementRule(
     PlacementRuleId rule,
     Guest guest,
     List<Guest> assigned,
     int candidateSeat,
+    bool isCircularTable,
   ) {
     switch (rule) {
       case PlacementRuleId.friendAtTable:
-        return assigned.any(
-          (seated) =>
-              guest.relations[seated.id] == RelationType.friend ||
-              guest.relations[seated.id] == RelationType.partner,
-        );
+        return assigned.any((seated) => _isFriendOrPartner(guest, seated));
       case PlacementRuleId.partnerAdjacent:
+        final totalSeatsAfterPlacement = assigned.length + 1;
         for (int i = 0; i < assigned.length; i++) {
           final seated = assigned[i];
-          final relation = guest.relations[seated.id];
-          final reverseRelation = seated.relations[guest.id];
-          final isPartner = relation == RelationType.partner || reverseRelation == RelationType.partner;
+          final isPartner = _isPartnerRelation(guest, seated);
           if (!isPartner) continue;
 
           final seatedSeat = i + 1;
           if ((seatedSeat - candidateSeat).abs() == 1) {
             return true;
           }
+
+          if (isCircularTable && totalSeatsAfterPlacement > 2) {
+            final wrapsAround =
+                (candidateSeat == 1 && seatedSeat == totalSeatsAfterPlacement) ||
+                (candidateSeat == totalSeatsAfterPlacement && seatedSeat == 1);
+            if (wrapsAround) {
+              return true;
+            }
+          }
         }
         return false;
     }
   }
 
-  int _placementScore(Guest guest, List<Guest> assigned, int candidateSeat) {
+  int _placementScore(
+    Guest guest,
+    List<Guest> assigned,
+    int candidateSeat,
+    bool isCircularTable,
+  ) {
     final enabledRules = _placementRules.where((r) => r.enabled).toList();
     if (enabledRules.isEmpty) return 0;
 
@@ -249,7 +276,7 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
     for (int i = 0; i < enabledRules.length; i++) {
       final rule = enabledRules[i];
       final weight = (enabledRules.length - i) * 100;
-      if (_matchesPlacementRule(rule.id, guest, assigned, candidateSeat)) {
+      if (_matchesPlacementRule(rule.id, guest, assigned, candidateSeat, isCircularTable)) {
         score += weight;
       }
     }
@@ -364,6 +391,11 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
         return true;
       }).toList();
 
+      for (final guest in unassigned) {
+        guest.tableId = null;
+        guest.seatNumber = null;
+      }
+
       for (var table in tables) {
         List<Guest> assigned = table['assigned'] as List<Guest>;
         assigned.removeWhere((g) => !g.isLocked);
@@ -394,49 +426,52 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
       while (unassigned.isNotEmpty && changesMade) {
         changesMade = false;
 
-        for (var table in tables) {
-          if (unassigned.isEmpty) break;
+        Guest? bestGuest;
+        int bestTableIndex = -1;
+        int bestSeat = -1;
+        int bestScore = -1;
+        int bestKnownCount = -1;
 
-          List<Guest> assigned = table['assigned'] as List<Guest>;
-          int maxSeats = table['seats'] as int;
+        for (int tableIndex = 0; tableIndex < tables.length; tableIndex++) {
+          final table = tables[tableIndex];
+          final List<Guest> assigned = table['assigned'] as List<Guest>;
+          final int maxSeats = table['seats'] as int;
+          final bool isCircularTable = (table['shape']?.toString().toLowerCase() ?? '') == 'cirkel';
 
           if (assigned.length >= maxSeats) continue;
 
-          Guest? bestCandidate;
-          int bestScore = -1;
+          for (final guest in unassigned) {
+            if (_hasAvoidConflict(guest, assigned)) continue;
 
-          for (var guest in unassigned) {
-            bool hasConflict = false;
-            for (var seated in assigned) {
-              if (guest.relations[seated.id] == RelationType.avoid ||
-                  seated.relations[guest.id] == RelationType.avoid) {
-                hasConflict = true;
-                break;
+            final knownCount = _knownGuestsAtTableCount(guest, assigned);
+
+            for (int candidateSeat = 1; candidateSeat <= assigned.length + 1; candidateSeat++) {
+              final score = _placementScore(guest, assigned, candidateSeat, isCircularTable);
+              final isBetter =
+                  score > bestScore ||
+                  (score == bestScore && knownCount > bestKnownCount) ||
+                  (score == bestScore &&
+                      knownCount == bestKnownCount &&
+                      bestGuest != null &&
+                      guest.relations.length > bestGuest.relations.length) ||
+                  (bestGuest == null);
+
+              if (isBetter) {
+                bestScore = score;
+                bestKnownCount = knownCount;
+                bestGuest = guest;
+                bestTableIndex = tableIndex;
+                bestSeat = candidateSeat;
               }
             }
-
-            if (hasConflict) continue;
-
-            final candidateSeat = assigned.length + 1;
-            final score = _placementScore(guest, assigned, candidateSeat);
-
-            if (score > bestScore) {
-              bestScore = score;
-              bestCandidate = guest;
-            } else if (score == bestScore && bestCandidate != null) {
-              if (guest.relations.length > bestCandidate.relations.length) {
-                bestCandidate = guest;
-              }
-            } else {
-              bestCandidate ??= guest;
-            }
           }
+        }
 
-          if (bestCandidate != null) {
-            unassigned.remove(bestCandidate);
-            assigned.add(bestCandidate);
-            changesMade = true;
-          }
+        if (bestGuest != null && bestTableIndex >= 0 && bestSeat > 0) {
+          final List<Guest> assigned = tables[bestTableIndex]['assigned'] as List<Guest>;
+          assigned.insert(bestSeat - 1, bestGuest);
+          unassigned.remove(bestGuest);
+          changesMade = true;
         }
       }
 
