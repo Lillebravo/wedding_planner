@@ -179,6 +179,37 @@ class StorageService {
     }
   }
 
+  static Future<void> deleteCoverImageByUrl(String imageUrl) async {
+    final path = _extractCoverPathFromPublicUrl(imageUrl);
+    if (path == null || path.isEmpty) {
+      throw Exception('Kunde inte tolka filens sökväg från bildens URL.');
+    }
+
+    try {
+      await supabase.storage.from(_coverBucket).remove([path]);
+    } on StorageException catch (e) {
+      debugPrint('Storage error while deleting cover image: ${e.message}');
+      throw Exception('Kunde inte radera bilden: ${e.message}');
+    } catch (e) {
+      debugPrint('Error deleting cover image: $e');
+      throw Exception('Ett oväntat fel uppstod vid radering av bilden.');
+    }
+  }
+
+  static String? _extractCoverPathFromPublicUrl(String imageUrl) {
+    final uri = Uri.tryParse(imageUrl);
+    if (uri == null) return null;
+
+    const marker = '/object/public/$_coverBucket/';
+    final markerIndex = uri.path.indexOf(marker);
+    if (markerIndex == -1) return null;
+
+    final encodedPath = uri.path.substring(markerIndex + marker.length);
+    if (encodedPath.isEmpty) return null;
+
+    return Uri.decodeComponent(encodedPath);
+  }
+
   static Future<void> saveCoverBackgroundColorValue(
     String weddingId,
     int colorValue,
