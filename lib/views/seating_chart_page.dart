@@ -11,6 +11,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import '../models/guest_model.dart';
 import '../l10n/app_localizations.dart';
+import '../services/seating_algorithm.dart';
 import '../services/storage_service.dart';
 import '../widgets/app_dropdown_form_field.dart';
 import '../widgets/app_labeled_text_field.dart';
@@ -413,10 +414,6 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
         reverse == RelationType.partner;
   }
 
-  int _knownGuestsAtTableCount(Guest guest, List<Guest> assigned) {
-    return assigned.where((seated) => _isFriendOrPartner(guest, seated)).length;
-  }
-
   bool _hasAvoidConflict(Guest guest, List<Guest> assigned) {
     for (final seated in assigned) {
       if (guest.relations[seated.id] == RelationType.avoid ||
@@ -427,69 +424,217 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
     return false;
   }
 
-  bool _matchesPlacementRule(
-    PlacementRuleId rule,
-    Guest guest,
-    List<Guest> assigned,
-    int candidateSeat,
-    bool isCircularTable,
-  ) {
-    switch (rule) {
-      case PlacementRuleId.friendAtTable:
-        return assigned.any((seated) => _isFriendOrPartner(guest, seated));
-      case PlacementRuleId.partnerAdjacent:
-        final totalSeatsAfterPlacement = assigned.length + 1;
-        for (int i = 0; i < assigned.length; i++) {
-          final seated = assigned[i];
-          final isPartner = _isPartnerRelation(guest, seated);
-          if (!isPartner) continue;
-
-          final seatedSeat = i + 1;
-          if ((seatedSeat - candidateSeat).abs() == 1) {
-            return true;
-          }
-
-          if (isCircularTable && totalSeatsAfterPlacement > 2) {
-            final wrapsAround =
-                (candidateSeat == 1 && seatedSeat == totalSeatsAfterPlacement) ||
-                (candidateSeat == totalSeatsAfterPlacement && seatedSeat == 1);
-            if (wrapsAround) {
-              return true;
-            }
-          }
-        }
-        return false;
-    }
+  bool _isHostGuest(Guest guest) {
+    return guest.title == GuestTitle.bride || guest.title == GuestTitle.groom;
   }
 
-  int _placementScore(
-    Guest guest,
-    List<Guest> assigned,
-    int candidateSeat,
-    bool isCircularTable,
-  ) {
-    final enabledRules = _placementRules.where((r) => r.enabled).toList();
-    if (enabledRules.isEmpty) return 0;
+  List<List<Guest>> _collectPartnerPairs(
+    List<Guest> candidates, {
+    required bool includeAllPartnerRelations,
+  }) {
+    final byId = {for (final guest in candidates) guest.id: guest};
+    final used = <String>{};
+    final pairs = <List<Guest>>[];
 
-    int score = 0;
-    for (int i = 0; i < enabledRules.length; i++) {
-      final rule = enabledRules[i];
-      final weight = (enabledRules.length - i) * 100;
-      if (_matchesPlacementRule(rule.id, guest, assigned, candidateSeat, isCircularTable)) {
-        score += weight;
+    void addPair(Guest a, Guest b) {
+      if (a.id == b.id) return;
+      if (used.contains(a.id) || used.contains(b.id)) return;
+      used.add(a.id);
+      used.add(b.id);
+      pairs.add([a, b]);
+    }
+
+    final bride = candidates.where((g) => g.title == GuestTitle.bride).firstOrNull;
+    final groom = candidates.where((g) => g.title == GuestTitle.groom).firstOrNull;
+    if (bride != null && groom != null) {
+      addPair(bride, groom);
+    }
+
+    if (!includeAllPartnerRelations) {
+      return pairs;
+    }
+
+    for (final guest in candidates) {
+      if (used.contains(guest.id)) continue;
+
+      for (final relation in guest.relations.entries) {
+        if (relation.value != RelationType.partner) continue;
+        final partner = byId[relation.key];
+        if (partner == null) continue;
+        addPair(guest, partner);
+        break;
       }
     }
 
-    return score;
+    return pairs;
   }
 
-  int _tablePreferenceScore(Guest guest, List<Guest> assigned, int maxSeats) {
-    final knownCount = _knownGuestsAtTableCount(guest, assigned);
-    if (knownCount > 0) {
-      return (knownCount * 1000) - (assigned.length * 10);
+  // --- ROUND-ROBIN PLACEMENT ENGINE ---
+
+  /// Attempts to seat [group] starting from [rrPointer], cycling through tables.
+  ///
+  /// Skips tables that are full, have avoid conflicts, or (when [requireFriend]
+  /// is true) have no known friend/partner of any group member.
+  /// Falls back to the first valid table (capacity + no avoid) when no
+  /// preferred match exists. Returns the new rrPointer on success, -1 on total
+  /// failure (no table can accommodate the group at all).
+  int _rrSeatGroup(
+    List<Guest> group,
+    int rrPointer, {
+    bool requireFriend = false,
+  }) {
+    final n = tables.length;
+    if (n == 0 || group.isEmpty) return -1;
+    int fallbackIdx = -1;
+
+    for (int attempt = 0; attempt < n; attempt++) {
+      final idx = (rrPointer + attempt) % n;
+      final assigned = tables[idx]['assigned'] as List<Guest>;
+      final maxSeats = tables[idx]['seats'] as int;
+
+      if (maxSeats - assigned.length < group.length) continue;
+      if (group.any((g) => _hasAvoidConflict(g, assigned))) continue;
+
+      // Track first valid table as fallback (capacity + no avoid, ignoring friend rule)
+      if (fallbackIdx < 0) fallbackIdx = idx;
+
+      if (requireFriend) {
+        final hasLink = assigned.isNotEmpty &&
+            group.any((g) => assigned.any((s) => _isFriendOrPartner(g, s)));
+        if (!hasLink) continue;
+      }
+
+      assigned.addAll(group);
+      return (idx + 1) % n;
     }
 
-    return (-maxSeats * 100) - (assigned.length * 25);
+    // Fallback: seat at first valid table, ignoring friend rule
+    if (fallbackIdx >= 0) {
+      (tables[fallbackIdx]['assigned'] as List<Guest>).addAll(group);
+      return (fallbackIdx + 1) % n;
+    }
+
+    return -1; // no table can accommodate the group
+  }
+
+  /// Phase: seat all partner couples from [unassigned] via round-robin.
+  /// Pairs that cannot be seated together remain in [unassigned].
+  int _rrPhaseCouple(List<Guest> unassigned, int rrPointer,
+      {bool requireFriend = false}) {
+    final pairs =
+        _collectPartnerPairs(unassigned, includeAllPartnerRelations: true);
+    for (final pair in pairs) {
+      final newPtr =
+          _rrSeatGroup(pair, rrPointer, requireFriend: requireFriend);
+      if (newPtr >= 0) {
+        rrPointer = newPtr;
+        unassigned.removeWhere((g) => pair.any((p) => p.id == g.id));
+      }
+    }
+    return rrPointer;
+  }
+
+  /// Phase: seat every guest in [unassigned] one at a time via round-robin.
+  int _rrPhaseByGuest(List<Guest> unassigned, int rrPointer,
+      {bool requireFriend = false}) {
+    for (final guest in List<Guest>.from(unassigned)) {
+      final newPtr =
+          _rrSeatGroup([guest], rrPointer, requireFriend: requireFriend);
+      if (newPtr >= 0) {
+        rrPointer = newPtr;
+        unassigned.remove(guest);
+      }
+    }
+    return rrPointer;
+  }
+
+  /// Friend-priority Phase B: after each guest has been seated individually,
+  /// try to move one partner to the other's table where capacity and avoid
+  /// rules permit. Skips locked guests and avoids leaving a table lonely.
+  void _rrTryColocatePartners() {
+    final guestTableIdx = <String, int>{};
+    for (int ti = 0; ti < tables.length; ti++) {
+      for (final g in (tables[ti]['assigned'] as List<Guest>)) {
+        guestTableIdx[g.id] = ti;
+      }
+    }
+
+    for (int ti = 0; ti < tables.length; ti++) {
+      for (final guest
+          in List<Guest>.from(tables[ti]['assigned'] as List<Guest>)) {
+        if (guest.isLocked) continue;
+        String? partnerId;
+        for (final entry in guest.relations.entries) {
+          if (entry.value == RelationType.partner) {
+            partnerId = entry.key;
+            break;
+          }
+        }
+        if (partnerId == null) continue;
+
+        final partnerTi = guestTableIdx[partnerId];
+        if (partnerTi == null || partnerTi == ti) continue;
+
+        final partnerAssigned = tables[partnerTi]['assigned'] as List<Guest>;
+        final partnerMax = tables[partnerTi]['seats'] as int;
+        if (partnerAssigned.length >= partnerMax) continue;
+        if (_hasAvoidConflict(guest, partnerAssigned)) continue;
+
+        final sourceAssigned = tables[ti]['assigned'] as List<Guest>;
+        // Don't leave the source table lonely (1 guest) after the move
+        if (sourceAssigned.length <= 2) continue;
+
+        sourceAssigned.remove(guest);
+        partnerAssigned.add(guest);
+        guestTableIdx[guest.id] = partnerTi;
+      }
+    }
+  }
+
+  /// Post-placement constraint: no table may have exactly 1 guest.
+  ///
+  /// Option A – move the lone guest to any table with ≥2 guests and free space.
+  /// Option B – bring a non-locked guest from a table with ≥3 guests here.
+  void _fixLonelyGuests() {
+    for (int ti = 0; ti < tables.length; ti++) {
+      final assigned = tables[ti]['assigned'] as List<Guest>;
+      if (assigned.length != 1) continue;
+      final loneGuest = assigned.first;
+
+      // Option A: move lone guest out
+      bool moved = false;
+      for (int oi = 0; oi < tables.length; oi++) {
+        if (oi == ti) continue;
+        final otherAssigned = tables[oi]['assigned'] as List<Guest>;
+        final otherMax = tables[oi]['seats'] as int;
+        if (otherAssigned.length < 2) continue;
+        if (otherAssigned.length >= otherMax) continue;
+        if (_hasAvoidConflict(loneGuest, otherAssigned)) continue;
+        assigned.remove(loneGuest);
+        otherAssigned.add(loneGuest);
+        moved = true;
+        break;
+      }
+      if (moved) continue;
+
+      // Option B: bring a guest in from a table with ≥3 guests
+      for (int oi = 0; oi < tables.length; oi++) {
+        if (oi == ti) continue;
+        final otherAssigned = tables[oi]['assigned'] as List<Guest>;
+        if (otherAssigned.length < 3) continue;
+        final thisMax = tables[ti]['seats'] as int;
+        if (assigned.length >= thisMax) continue;
+
+        final movable = otherAssigned
+            .where((g) => !g.isLocked && !_hasAvoidConflict(g, assigned))
+            .firstOrNull;
+        if (movable == null) continue;
+
+        otherAssigned.remove(movable);
+        assigned.add(movable);
+        break;
+      }
+    }
   }
 
   Future<void> _showPlacementSettingsDialog() async {
@@ -573,58 +718,34 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
     );
   }
 
-  // Nu ├ñr metoden async och uppdaterar s├ñtesnummer & databasen!
+  // Nu är metoden async och uppdaterar sätesnummer & databasen!
   Future<void> _runPlacementAlgorithm() async {
     final localizations = AppLocalizationsScope.of(context);
     setState(() {
-      final hosts = widget.guests
-          .where((g) => g.title == GuestTitle.bride || g.title == GuestTitle.groom)
-          .toList();
-      final standardGuests = widget.guests
-          .where((g) => g.title != GuestTitle.bride && g.title != GuestTitle.groom)
-          .toList();
+      final enabledRuleIds = _placementRules
+          .where((rule) => rule.enabled)
+          .map((rule) => rule.id)
+          .toSet();
+      final friendRuleEnabled =
+          enabledRuleIds.contains(PlacementRuleId.friendAtTable);
+      final partnerRuleEnabled =
+          enabledRuleIds.contains(PlacementRuleId.partnerAdjacent);
 
-      for (var host in hosts) {
-        for (var guest in standardGuests) {
-          if (!host.relations.containsKey(guest.id)) {
-            host.relations[guest.id] = RelationType.friend;
-          }
-          if (!guest.relations.containsKey(host.id)) {
-            guest.relations[host.id] = RelationType.friend;
-          }
-        }
-      }
-
-      List<Guest> unassigned = widget.guests.where((g) {
-        if (g.isLocked && g.tableId != null) return false;
-        return true;
-      }).toList();
-
-      for (final guest in unassigned) {
-        guest.tableId = null;
-        guest.seatNumber = null;
-      }
-
-      for (var table in tables) {
-        List<Guest> assigned = table['assigned'] as List<Guest>;
-        assigned.removeWhere((g) => !g.isLocked);
-        _sortAssignedBySeat(assigned);
-        _reindexSeats(assigned, table);
-      }
-
-      int totalAvailableSeats = 0;
-      for (var t in tables) {
-        totalAvailableSeats += (t['seats'] as int) - (t['assigned'] as List<Guest>).length;
-      }
-
-      if (unassigned.length > totalAvailableSeats) {
+      // Capacity check for snackbar warning.
+      final lockedCount =
+          widget.guests.where((g) => g.isLocked && g.tableId != null).length;
+      final totalSeats =
+          tables.fold(0, (s, t) => s + (t['seats'] as int));
+      final unassignedCount = widget.guests.length - lockedCount;
+      final availableSeats = totalSeats - lockedCount;
+      if (unassignedCount > availableSeats) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             backgroundColor: Colors.red[700],
             content: Text(
               localizations.text(
                 'placement_not_enough_seats',
-                values: {'count': '${unassigned.length - totalAvailableSeats}'},
+                values: {'count': '${unassignedCount - availableSeats}'},
               ),
             ),
             duration: const Duration(seconds: 4),
@@ -632,73 +753,23 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
         );
       }
 
-      unassigned.sort((a, b) => b.relations.length.compareTo(a.relations.length));
+      // Priority: lower index in _placementRules = higher priority.
+      final int partnerPriIdx = _placementRules
+          .indexWhere((r) => r.id == PlacementRuleId.partnerAdjacent);
+      final int friendPriIdx = _placementRules
+          .indexWhere((r) => r.id == PlacementRuleId.friendAtTable);
 
-      bool changesMade = true;
-      while (unassigned.isNotEmpty && changesMade) {
-        changesMade = false;
+      SeatingAlgorithm(
+        tables: tables,
+        guests: widget.guests,
+        partnerRuleEnabled: partnerRuleEnabled,
+        friendRuleEnabled: friendRuleEnabled,
+        partnerHigherPriority: partnerPriIdx < friendPriIdx,
+      ).run();
 
-        Guest? bestGuest;
-        int bestTableIndex = -1;
-        int bestSeat = -1;
-        int bestScore = -1;
-        int bestKnownCount = -1;
-        int bestTablePreference = -1 << 30;
-
-        for (int tableIndex = 0; tableIndex < tables.length; tableIndex++) {
-          final table = tables[tableIndex];
-          final List<Guest> assigned = table['assigned'] as List<Guest>;
-          final int maxSeats = table['seats'] as int;
-          final bool isCircularTable = (table['shape']?.toString().toLowerCase() ?? '') == 'cirkel';
-
-          if (assigned.length >= maxSeats) continue;
-
-          for (final guest in unassigned) {
-            if (_hasAvoidConflict(guest, assigned)) continue;
-
-            final knownCount = _knownGuestsAtTableCount(guest, assigned);
-            final tablePreference = _tablePreferenceScore(guest, assigned, maxSeats);
-
-            for (int candidateSeat = 1; candidateSeat <= assigned.length + 1; candidateSeat++) {
-              final score = _placementScore(guest, assigned, candidateSeat, isCircularTable);
-              final isBetter =
-                  score > bestScore ||
-                  (score == bestScore && knownCount > bestKnownCount) ||
-                  (score == bestScore &&
-                      knownCount == bestKnownCount &&
-                      tablePreference > bestTablePreference) ||
-                  (score == bestScore &&
-                      knownCount == bestKnownCount &&
-                      tablePreference == bestTablePreference &&
-                      bestGuest != null &&
-                      guest.relations.length > bestGuest.relations.length) ||
-                  (bestGuest == null);
-
-              if (isBetter) {
-                bestScore = score;
-                bestKnownCount = knownCount;
-                bestTablePreference = tablePreference;
-                bestGuest = guest;
-                bestTableIndex = tableIndex;
-                bestSeat = candidateSeat;
-              }
-            }
-          }
-        }
-
-        if (bestGuest != null && bestTableIndex >= 0 && bestSeat > 0) {
-          final List<Guest> assigned = tables[bestTableIndex]['assigned'] as List<Guest>;
-          assigned.insert(bestSeat - 1, bestGuest);
-          unassigned.remove(bestGuest);
-          changesMade = true;
-        }
-      }
-
-      // Ge alla g├ñster korrekta s├ñtesnummer och tableId
-      for (var table in tables) {
-        List<Guest> assigned = table['assigned'] as List<Guest>;
-        _sortAssignedBySeat(assigned);
-        _reindexSeats(assigned, table);
+      // Re-normalise tableIds to valid UUIDs (Supabase requirement).
+      for (final table in tables) {
+        _reindexSeats(table['assigned'] as List<Guest>, table);
       }
     });
 
@@ -1683,13 +1754,13 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
           if (isCompact)
             IconButton(
               icon: const Icon(Icons.auto_awesome),
-              tooltip: AppLocalizationsScope.of(context).text('auto_placement_settings'),
+              tooltip: AppLocalizationsScope.of(context).text('auto_placement'),
               onPressed: _runPlacementAlgorithm,
             )
           else
             ElevatedButton.icon(
               icon: const Icon(Icons.auto_awesome),
-              label: Text(AppLocalizationsScope.of(context).text('auto_placement_settings')),
+              label: Text(AppLocalizationsScope.of(context).text('auto_placement')),
               onPressed: _runPlacementAlgorithm,
             ),
           IconButton(

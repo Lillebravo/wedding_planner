@@ -65,6 +65,7 @@
   "no_seated_guests": "Inga gäster placerade",
   "exported_png": "PNG exporterad.",
   "exported_pdf": "PDF exporterad.",
+  "auto_placement": "Autoplacering",
   "auto_placement_settings": "Inställningar för autoplacering",
   "auto_placement_hint": "Slå av/på regler och dra för att välja vilken regel som är viktigast.",
   "auto_rule_friend": "Minst en vän vid samma bord",

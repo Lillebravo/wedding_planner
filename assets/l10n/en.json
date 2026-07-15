@@ -65,6 +65,7 @@
   "no_seated_guests": "No guests seated",
   "exported_png": "PNG exported.",
   "exported_pdf": "PDF exported.",
+  "auto_placement": "Auto placement",
   "auto_placement_settings": "Auto placement settings",
   "auto_placement_hint": "Toggle rules and drag to choose which rule matters most.",
   "auto_rule_friend": "At least one friend at the same table",
