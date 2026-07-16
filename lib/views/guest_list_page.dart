@@ -1,7 +1,14 @@
+import 'dart:typed_data';
+
+import 'package:file_saver/file_saver.dart';
 import 'package:flutter/material.dart';
+import 'package:pdf/pdf.dart' as p;
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 import '../models/guest_model.dart';
 import '../models/wedding_model.dart';
 import '../l10n/app_localizations.dart';
+import '../services/guest_pdf_export.dart';
 import '../services/storage_service.dart';
 import 'seating_chart_page.dart';
 import '../widgets/app_dropdown_form_field.dart';
@@ -333,40 +340,116 @@ class _GuestListPageState extends State<GuestListPage> {
   }
 
   List<Guest> _buildVisibleGuests() {
-    final hosts = guests.where(_isHost).toList()
-      ..sort((a, b) => _hostPriority(a).compareTo(_hostPriority(b)));
-
-    final visibleGuests = guests
-        .where((g) => !_isHost(g))
-        .where(_matchesActiveFilters)
-        .toList();
+    final visibleGuests = guests.where(_matchesActiveFilters).toList();
 
     switch (_selectedSort) {
       case GuestSortOption.nameAscending:
-        visibleGuests.sort(
-          (a, b) =>
-              a.fullName.toLowerCase().compareTo(b.fullName.toLowerCase()),
-        );
+        visibleGuests.sort((a, b) {
+          final hostCompare = _hostPriority(a).compareTo(_hostPriority(b));
+          if (hostCompare != 0) return hostCompare;
+          return a.fullName.toLowerCase().compareTo(b.fullName.toLowerCase());
+        });
         break;
       case GuestSortOption.nameDescending:
-        visibleGuests.sort(
-          (a, b) =>
-              b.fullName.toLowerCase().compareTo(a.fullName.toLowerCase()),
-        );
+        visibleGuests.sort((a, b) {
+          final hostCompare = _hostPriority(a).compareTo(_hostPriority(b));
+          if (hostCompare != 0) return hostCompare;
+          return b.fullName.toLowerCase().compareTo(a.fullName.toLowerCase());
+        });
         break;
       case GuestSortOption.createdNewest:
-        visibleGuests.sort(
-          (a, b) => _createdTimestamp(b).compareTo(_createdTimestamp(a)),
-        );
+        visibleGuests.sort((a, b) {
+          final hostCompare = _hostPriority(a).compareTo(_hostPriority(b));
+          if (hostCompare != 0) return hostCompare;
+          return _createdTimestamp(b).compareTo(_createdTimestamp(a));
+        });
         break;
       case GuestSortOption.createdOldest:
-        visibleGuests.sort(
-          (a, b) => _createdTimestamp(a).compareTo(_createdTimestamp(b)),
-        );
+        visibleGuests.sort((a, b) {
+          final hostCompare = _hostPriority(a).compareTo(_hostPriority(b));
+          if (hostCompare != 0) return hostCompare;
+          return _createdTimestamp(a).compareTo(_createdTimestamp(b));
+        });
         break;
     }
 
-    return [...hosts, ...visibleGuests];
+    return visibleGuests;
+  }
+
+  Future<void> _exportDietaryGuestsAsPdf() async {
+    final localizations = AppLocalizationsScope.of(context);
+    final exportedGuests = _buildVisibleGuests();
+
+    if (exportedGuests.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(localizations.text('no_matches')),
+        ),
+      );
+      return;
+    }
+
+    try {
+      final pdf = pw.Document();
+      final baseFont = await PdfGoogleFonts.notoSansRegular();
+      final boldFont = await PdfGoogleFonts.notoSansBold();
+
+      pdf.addPage(
+        pw.MultiPage(
+          theme: pw.ThemeData.withFont(base: baseFont, bold: boldFont),
+          build: (context) => [
+            pw.Text(
+              localizations.text('guest_list_title'),
+              style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold),
+            ),
+            pw.SizedBox(height: 8),
+            pw.Text(
+              localizations.text('guest_list_export_pdf'),
+              style: pw.TextStyle(fontSize: 11, color: p.PdfColors.grey700),
+            ),
+            pw.SizedBox(height: 20),
+            ...exportedGuests.map(
+              (guest) => pw.Padding(
+                padding: const pw.EdgeInsets.only(bottom: 8),
+                child: pw.Text(
+                  guestPdfLine(
+                    guest,
+                    localizations,
+                    includeRole: true,
+                    includeDietary: true,
+                  ),
+                  style: pw.TextStyle(
+                    fontSize: 12,
+                    color: p.PdfColors.black,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+
+      final pdfBytes = await pdf.save();
+      final fileName = 'guest_list_${DateTime.now().millisecondsSinceEpoch}';
+      await FileSaver.instance.saveFile(
+        name: fileName,
+        bytes: Uint8List.fromList(pdfBytes),
+        fileExtension: 'pdf',
+        mimeType: MimeType.pdf,
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(localizations.text('exported_pdf'))),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${localizations.text('guest_list_export_pdf')}: $e'),
+        ),
+      );
+    }
   }
 
   String _sortLabel(GuestSortOption sort) {
@@ -416,156 +499,126 @@ class _GuestListPageState extends State<GuestListPage> {
       '${localizations.text('relations')}: ${guest.relations.length}',
     ];
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(22),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x12000000),
-            blurRadius: 16,
-            offset: Offset(0, 8),
-          ),
-        ],
-        border: Border.all(
-          color: isHost ? const Color(0xFFECC0CD) : const Color(0xFFF1ECEE),
-          width: isHost ? 1.2 : 1,
-        ),
+    final leadingIcon = CircleAvatar(
+      backgroundColor: isHost ? const Color(0xFFFCE7EE) : const Color(0xFFF6F3F4),
+      child: Icon(
+        isHost ? Icons.favorite : Icons.person_outline,
+        color: isHost ? const Color(0xFFC46C84) : const Color(0xFF77686D),
       ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: isHost
-                    ? const Color(0xFFFCE7EE)
-                    : const Color(0xFFF6F3F4),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Icon(
-                isHost ? Icons.favorite : Icons.person_outline,
-                color: isHost
-                    ? const Color(0xFFC46C84)
-                    : const Color(0xFF77686D),
+    );
+
+    final titleRow = Row(
+      children: [
+        Expanded(
+          child: Text(
+            guest.fullName,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: isHost ? FontWeight.w700 : FontWeight.w600,
+              color: const Color(0xFF24191D),
+            ),
+          ),
+        ),
+        if (isHost)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFDEDF2),
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Text(
+              localizations.text('host_badge'),
+              style: const TextStyle(
+                color: Color(0xFFC46C84),
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.3,
               ),
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 6,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      Text(
-                        guest.fullName,
-                        style: TextStyle(
-                          fontSize: 17,
-                          fontWeight: isHost
-                              ? FontWeight.w700
-                              : FontWeight.w600,
-                          color: const Color(0xFF24191D),
-                        ),
-                      ),
-                      if (isHost)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFFDEDF2),
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Text(
-                            localizations.text('host_badge'),
-                            style: TextStyle(
-                              color: Color(0xFFC46C84),
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: 0.3,
-                            ),
-                          ),
-                        ),
-                    ],
+          ),
+      ],
+    );
+
+    final subtitle = Text(
+      summaryParts.join(' · '),
+      style: const TextStyle(
+        color: Color(0xFF6E6166),
+        fontSize: 13,
+        height: 1.35,
+      ),
+    );
+
+    final trailingActions = isCompact
+        ? PopupMenuButton<String>(
+                onSelected: (value) {
+                  switch (value) {
+                    case 'relations':
+                      _manageRelationsDialog(guest);
+                      break;
+                    case 'edit':
+                      _openGuestFormDialog(guestToEdit: guest);
+                      break;
+                    case 'delete':
+                      _confirmDeleteDialog(guest);
+                      break;
+                  }
+                },
+                itemBuilder: (context) => [
+                  PopupMenuItem(
+                    value: 'relations',
+                    child: Text(localizations.text('manage_relations')),
                   ),
-                  const SizedBox(height: 6),
-                  Text(
-                    summaryParts.join(' · '),
-                    style: const TextStyle(
-                      color: Color(0xFF6E6166),
-                      fontSize: 13,
-                      height: 1.35,
-                    ),
+                  PopupMenuItem(
+                    value: 'edit',
+                    child: Text(localizations.text('edit')),
+                  ),
+                  PopupMenuItem(
+                    value: 'delete',
+                    child: Text(localizations.text('delete')),
                   ),
                 ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            isCompact
-                ? PopupMenuButton<String>(
-                    onSelected: (value) {
-                      switch (value) {
-                        case 'relations':
-                          _manageRelationsDialog(guest);
-                          break;
-                        case 'edit':
-                          _openGuestFormDialog(guestToEdit: guest);
-                          break;
-                        case 'delete':
-                          _confirmDeleteDialog(guest);
-                          break;
-                      }
-                    },
-                    itemBuilder: (context) => [
-                      PopupMenuItem(
-                        value: 'relations',
-                        child: Text(localizations.text('manage_relations')),
-                      ),
-                      PopupMenuItem(value: 'edit', child: Text(localizations.text('edit'))),
-                      PopupMenuItem(value: 'delete', child: Text(localizations.text('delete'))),
-                    ],
-                  )
-                : Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        icon: const Icon(
-                          Icons.people_alt_outlined,
-                          color: Color(0xFF5778B1),
-                        ),
-                        tooltip: localizations.text('manage_relations'),
-                        onPressed: () => _manageRelationsDialog(guest),
-                      ),
-                      IconButton(
-                        icon: const Icon(
-                          Icons.edit_outlined,
-                          color: Color(0xFFC1834D),
-                        ),
-                        tooltip: localizations.text('edit'),
-                        onPressed: () =>
-                            _openGuestFormDialog(guestToEdit: guest),
-                      ),
-                      IconButton(
-                        icon: const Icon(
-                          Icons.delete_outline,
-                          color: Color(0xFFC25353),
-                        ),
-                        tooltip: localizations.text('delete'),
-                        onPressed: () => _confirmDeleteDialog(guest),
-                      ),
-                    ],
+              )
+        : Wrap(
+                spacing: 0,
+                children: [
+                  IconButton(
+                    icon: const Icon(
+                      Icons.people_alt_outlined,
+                      color: Color(0xFF5778B1),
+                    ),
+                    tooltip: localizations.text('manage_relations'),
+                    onPressed: () => _manageRelationsDialog(guest),
                   ),
-          ],
+                  IconButton(
+                    icon: const Icon(
+                      Icons.edit_outlined,
+                      color: Color(0xFFC1834D),
+                    ),
+                    tooltip: localizations.text('edit'),
+                    onPressed: () => _openGuestFormDialog(guestToEdit: guest),
+                  ),
+                  IconButton(
+                    icon: const Icon(
+                      Icons.delete_outline,
+                      color: Color(0xFFC25353),
+                    ),
+                    tooltip: localizations.text('delete'),
+                    onPressed: () => _confirmDeleteDialog(guest),
+                  ),
+                ],
+              );
+
+    return Column(
+      children: [
+        ListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+          leading: leadingIcon,
+          title: titleRow,
+          subtitle: subtitle,
+          trailing: trailingActions,
         ),
-      ),
+        const Divider(height: 1, thickness: 1),
+      ],
     );
   }
 
@@ -598,6 +651,11 @@ class _GuestListPageState extends State<GuestListPage> {
         })),
         actions: [
           const LanguageToggleButton(),
+          IconButton(
+            icon: const Icon(Icons.picture_as_pdf_outlined),
+            tooltip: localizations.text('guest_list_export_pdf'),
+            onPressed: _exportDietaryGuestsAsPdf,
+          ),
           IconButton(
             icon: const Icon(Icons.chair_alt),
             onPressed: () {

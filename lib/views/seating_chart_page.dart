@@ -2,7 +2,6 @@
 
 import 'dart:math' as math;
 import 'dart:typed_data';
-import 'dart:ui' as ui;
 
 import 'package:file_saver/file_saver.dart';
 import 'package:flutter/material.dart';
@@ -11,6 +10,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import '../models/guest_model.dart';
 import '../l10n/app_localizations.dart';
+import '../services/guest_pdf_export.dart';
 import '../services/seating_algorithm.dart';
 import '../services/storage_service.dart';
 import '../widgets/app_dropdown_form_field.dart';
@@ -52,9 +52,9 @@ class SeatingChartPage extends StatefulWidget {
 class _SeatingChartPageState extends State<SeatingChartPage> {
   String _chartSearchQuery = '';
   GuestTitle? _chartTitleFilter;
+  bool _chartOnlyDietary = false;
   bool _isLoadingTables = true;
   final GlobalKey _visualLayoutKey = GlobalKey();
-  final GlobalKey _tablesPaneKey = GlobalKey();
 
   List<Map<String, dynamic>> tables = [];
 
@@ -150,49 +150,6 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
     await StorageService.savePlacementRules(widget.weddingId, payload);
   }
 
-  String _dietText(Guest guest) {
-    final raw = guest.dietaryRestrictions.join(', ').trim();
-    return raw;
-  }
-
-  Future<void> _exportSeatingAsPng() async {
-    final localizations = AppLocalizationsScope.of(context);
-    final boundary = _tablesPaneKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
-    if (boundary == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(localizations.text('export_png_failed'))),
-      );
-      return;
-    }
-
-    try {
-      final image = await boundary.toImage(pixelRatio: 3);
-      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-      if (byteData == null) {
-        throw Exception('Tom bilddata.');
-      }
-
-      final pngBytes = byteData.buffer.asUint8List();
-      final fileName = 'bordsplacering_${DateTime.now().millisecondsSinceEpoch}';
-      await FileSaver.instance.saveFile(
-        name: fileName,
-        bytes: pngBytes,
-        fileExtension: 'png',
-        mimeType: MimeType.png,
-      );
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(localizations.text('exported_png'))),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${localizations.text('export_png_failed')}: $e')),
-      );
-    }
-  }
-
   Future<void> _exportSeatingAsPdf() async {
     final localizations = AppLocalizationsScope.of(context);
     try {
@@ -248,7 +205,7 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
                                 (g) => pw.Padding(
                                   padding: const pw.EdgeInsets.symmetric(vertical: 2),
                                   child: pw.Text(
-                                    '${g.seatNumber ?? '-'} ${g.fullName} | ${localizations.text('guest_role')}: ${localizations.guestTitle(g.title)}${g.dietaryRestrictions.isEmpty ? '' : ' | ${_dietText(g)}'}',
+                                    '${g.seatNumber ?? '-'} ${guestPdfLine(g, localizations, includeRole: true, includeDietary: true)}',
                                   ),
                                 ),
                               )
@@ -276,7 +233,14 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
 
               content.addAll(
                 unassignedGuests.map(
-                  (g) => pw.Text('${g.fullName} | ${localizations.text('guest_role')}: ${localizations.guestTitle(g.title)}${g.dietaryRestrictions.isEmpty ? '' : ' | ${_dietText(g)}'}'),
+                  (g) => pw.Text(
+                    guestPdfLine(
+                      g,
+                      localizations,
+                      includeRole: true,
+                      includeDietary: true,
+                    ),
+                  ),
                 ),
               );
             }
@@ -794,7 +758,9 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
     final localizations = AppLocalizationsScope.of(context);
     final isEditing = tableToEdit != null;
     final nameCtrl = TextEditingController(
-      text: isEditing ? tableToEdit['name'] : '${localizations.text('add_table')} ${tables.length + 1}',
+      text: isEditing
+          ? tableToEdit['name']
+          : '${localizations.text('table_default_name_prefix')} ${tables.length + 1}',
     );
     final seatsCtrl = TextEditingController(
       text: isEditing ? tableToEdit['seats'].toString() : '8',
@@ -1217,6 +1183,17 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
               onChanged: (val) => setState(() => _chartTitleFilter = val),
             ),
           ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 4.0),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: FilterChip(
+                label: Text(localizations.text('only_dietary')),
+                selected: _chartOnlyDietary,
+                onSelected: (selected) => setState(() => _chartOnlyDietary = selected),
+              ),
+            ),
+          ),
           const Divider(height: 16),
           Expanded(
             child: Builder(
@@ -1224,7 +1201,8 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
                 final menuList = unassignedGuests.where((g) {
                   final matchesSearch = g.fullName.toLowerCase().contains(_chartSearchQuery.toLowerCase());
                   final matchesTitle = _chartTitleFilter == null || g.title == _chartTitleFilter;
-                  return matchesSearch && matchesTitle;
+                  final matchesDietary = !_chartOnlyDietary || g.dietaryRestrictions.isNotEmpty;
+                  return matchesSearch && matchesTitle && matchesDietary;
                 }).toList();
 
                 if (menuList.isEmpty) {
@@ -1633,7 +1611,7 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
                             child: _buildSpeechBubble(
                               guest.dietaryRestrictions.isEmpty
                                   ? guest.fullName
-                                  : '${guest.fullName}\n${_dietText(guest)}',
+                                  : '${guest.fullName}\n${guest.dietaryRestrictions.join(', ')}',
                               alignRight: alignRight,
                             ),
                           ),
@@ -1712,13 +1690,6 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
     );
   }
 
-  Widget _buildTablesPaneWithExport() {
-    return RepaintBoundary(
-      key: _tablesPaneKey,
-      child: _buildTablesPane(),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     if (_isLoadingTables) {
@@ -1744,12 +1715,6 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
               icon: const Icon(Icons.picture_as_pdf),
               tooltip: AppLocalizationsScope.of(context).text('seating_chart_export_pdf'),
               onPressed: _exportSeatingAsPdf,
-            ),
-          if (!isCompact)
-            IconButton(
-              icon: const Icon(Icons.image),
-              tooltip: AppLocalizationsScope.of(context).text('seating_chart_export_png'),
-              onPressed: _exportSeatingAsPng,
             ),
           if (isCompact)
             IconButton(
@@ -1797,14 +1762,14 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
                   height: 280,
                   child: _buildUnassignedPane(unassignedGuests, isCompact: true),
                 ),
-                Expanded(child: _buildTablesPaneWithExport()),
+                Expanded(child: _buildTablesPane()),
               ],
             )
           : Row(
               children: [
                 Expanded(
                   flex: 3,
-                  child: _buildTablesPaneWithExport(),
+                  child: _buildTablesPane(),
                 ),
                 const VerticalDivider(width: 1),
                 Expanded(

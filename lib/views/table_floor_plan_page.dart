@@ -1,6 +1,10 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 
+import 'package:file_saver/file_saver.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
 import '../models/guest_model.dart';
 import '../l10n/app_localizations.dart';
@@ -27,11 +31,13 @@ class TableFloorPlanPage extends StatefulWidget {
 
 class _TableFloorPlanPageState extends State<TableFloorPlanPage> {
   static const Size _canvasSize = Size(1800, 1200);
-  static const double _minScale = 0.55;
+  static const double _minScale = 0.35;
   static const double _maxScale = 2.6;
 
   final TransformationController _transformationController =
       TransformationController();
+  final GlobalKey _floorPlanExportKey = GlobalKey();
+  final GlobalKey _floorViewportKey = GlobalKey();
 
   List<Map<String, dynamic>> _tables = [];
   Map<String, Offset> _tablePositions = {};
@@ -222,9 +228,50 @@ class _TableFloorPlanPageState extends State<TableFloorPlanPage> {
     }
   }
 
+  Future<void> _exportFloorPlanAsPng() async {
+    final localizations = AppLocalizationsScope.of(context);
+    final boundary =
+        _floorPlanExportKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+    if (boundary == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(localizations.text('export_png_failed'))),
+      );
+      return;
+    }
+
+    try {
+      final image = await boundary.toImage(pixelRatio: 3);
+      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      if (byteData == null) {
+        throw Exception('Tom bilddata.');
+      }
+
+      final pngBytes = byteData.buffer.asUint8List();
+      final fileName = 'golvvy_${DateTime.now().millisecondsSinceEpoch}';
+      await FileSaver.instance.saveFile(
+        name: fileName,
+        bytes: Uint8List.fromList(pngBytes),
+        fileExtension: 'png',
+        mimeType: MimeType.png,
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(localizations.text('exported_png'))),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${localizations.text('export_png_failed')}: $e')),
+      );
+    }
+  }
+
   Future<void> _openTableFormDialog() async {
     final localizations = AppLocalizationsScope.of(context);
-    final nameCtrl = TextEditingController(text: '${localizations.text('add_table')} ${_tables.length + 1}');
+    final nameCtrl = TextEditingController(
+      text: '${localizations.text('table_default_name_prefix')} ${_tables.length + 1}',
+    );
     final seatsCtrl = TextEditingController(text: '8');
     const shapes = [
       {'value': 'Kvadrat', 'labelKey': 'table_square'},
@@ -312,7 +359,30 @@ class _TableFloorPlanPageState extends State<TableFloorPlanPage> {
   }
 
   void _resetZoom() {
-    _transformationController.value = Matrix4.identity();
+    final renderObject = _floorViewportKey.currentContext?.findRenderObject();
+    if (renderObject is! RenderBox || !renderObject.hasSize) {
+      _transformationController.value = Matrix4.identity();
+      return;
+    }
+
+    final viewportSize = renderObject.size;
+    if (viewportSize.isEmpty) {
+      _transformationController.value = Matrix4.identity();
+      return;
+    }
+
+    final fitScale = math.min(
+      viewportSize.width / _canvasSize.width,
+      viewportSize.height / _canvasSize.height,
+    );
+    final targetScale = (fitScale * 0.94).clamp(_minScale, _maxScale);
+
+    final dx = (viewportSize.width - (_canvasSize.width * targetScale)) / 2;
+    final dy = (viewportSize.height - (_canvasSize.height * targetScale)) / 2;
+
+    _transformationController.value = Matrix4.identity()
+      ..scale(targetScale)
+      ..setTranslationRaw(dx, dy, 0);
   }
 
   void _moveTable(String tableId, Offset delta) {
@@ -626,6 +696,12 @@ class _TableFloorPlanPageState extends State<TableFloorPlanPage> {
                 label: Text(localizations.text('center_view')),
               ),
               const SizedBox(width: 8),
+              TextButton.icon(
+                onPressed: _exportFloorPlanAsPng,
+                icon: const Icon(Icons.image_outlined),
+                label: Text(localizations.text('seating_chart_export_png')),
+              ),
+              const SizedBox(width: 8),
               if (!widget.readOnly) ...[
                 Container(
                   padding: const EdgeInsets.symmetric(
@@ -701,18 +777,21 @@ class _TableFloorPlanPageState extends State<TableFloorPlanPage> {
       minScale: _minScale,
       maxScale: _maxScale,
       constrained: false,
-      boundaryMargin: const EdgeInsets.all(240),
-      child: SizedBox(
-        width: _canvasSize.width,
-        height: _canvasSize.height,
-        child: Stack(
-          children: [
-            const Positioned.fill(
-              child: CustomPaint(painter: _FloorGridPainter()),
-            ),
-            ..._tables.map(_buildTableNode),
-            if (_showGuests) ..._tables.expand(_buildGuestNodesForTable),
-          ],
+      boundaryMargin: const EdgeInsets.all(520),
+      child: RepaintBoundary(
+        key: _floorPlanExportKey,
+        child: SizedBox(
+          width: _canvasSize.width,
+          height: _canvasSize.height,
+          child: Stack(
+            children: [
+              const Positioned.fill(
+                child: CustomPaint(painter: _FloorGridPainter()),
+              ),
+              ..._tables.map(_buildTableNode),
+              if (_showGuests) ..._tables.expand(_buildGuestNodesForTable),
+            ],
+          ),
         ),
       ),
     );
@@ -1030,6 +1109,7 @@ class _TableFloorPlanPageState extends State<TableFloorPlanPage> {
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(24),
                   child: Container(
+                    key: _floorViewportKey,
                     decoration: BoxDecoration(
                       border: Border.all(color: const Color(0xFFE7D7D0)),
                       boxShadow: const [

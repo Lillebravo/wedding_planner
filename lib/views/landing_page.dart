@@ -191,6 +191,24 @@ class _LandingPageState extends State<LandingPage> {
     return normalized.isEmpty || normalized == 'ej satt' || normalized == 'not set';
   }
 
+  String _safeLocalizedText(
+    AppLocalizationsController localizations,
+    String key, {
+    String? fallbackKey,
+  }) {
+    final text = localizations.text(key);
+    if (text != key) {
+      return text;
+    }
+
+    if (fallbackKey == null) {
+      return text;
+    }
+
+    final fallbackText = localizations.text(fallbackKey);
+    return fallbackText == fallbackKey ? text : fallbackText;
+  }
+
   Widget _buildHeroStat(String value, String label) {
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -622,6 +640,29 @@ class _LandingPageState extends State<LandingPage> {
     final localizations = AppLocalizationsScope.of(context);
     final codeController = TextEditingController();
 
+    Future<void> submitAdminCode(BuildContext dialogContext) async {
+      final messenger = ScaffoldMessenger.of(context);
+      final navigator = Navigator.of(dialogContext);
+      final unlocked = await StorageService.unlockAdminForWedding(
+        _wedding!,
+        codeController.text,
+      );
+      if (!mounted) return;
+
+      if (!unlocked) {
+        messenger.showSnackBar(
+          SnackBar(content: Text(localizations.text('admin_unlock_failed'))),
+        );
+        return;
+      }
+
+      setState(() => _isAdmin = true);
+      navigator.pop();
+      messenger.showSnackBar(
+        SnackBar(content: Text(localizations.text('admin_unlock_success'))),
+      );
+    }
+
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -638,8 +679,10 @@ class _LandingPageState extends State<LandingPage> {
             TextField(
               controller: codeController,
               keyboardType: TextInputType.number,
+              textInputAction: TextInputAction.done,
               maxLength: 6,
               obscureText: true,
+              onSubmitted: (_) => submitAdminCode(dialogContext),
               decoration: InputDecoration(
                 labelText: localizations.text('admin_code_label'),
                 counterText: '',
@@ -650,28 +693,7 @@ class _LandingPageState extends State<LandingPage> {
         actions: [
           DialogConfirmButton(
             label: localizations.text('unlock_admin_mode'),
-            onPressed: () async {
-              final messenger = ScaffoldMessenger.of(context);
-              final navigator = Navigator.of(dialogContext);
-              final unlocked = await StorageService.unlockAdminForWedding(
-                _wedding!,
-                codeController.text,
-              );
-              if (!mounted) return;
-
-              if (!unlocked) {
-                messenger.showSnackBar(
-                  SnackBar(content: Text(localizations.text('admin_unlock_failed'))),
-                );
-                return;
-              }
-
-              setState(() => _isAdmin = true);
-              navigator.pop();
-              messenger.showSnackBar(
-                SnackBar(content: Text(localizations.text('admin_unlock_success'))),
-              );
-            },
+            onPressed: () => submitAdminCode(dialogContext),
           ),
         ],
       ),
@@ -1779,8 +1801,16 @@ class _LandingPageState extends State<LandingPage> {
                       ),
                       _buildInfoTile(
                         icon: Icons.grid_view_rounded,
-                        title: localizations.text('landing_floor_plan_title'),
-                        subtitle: localizations.text('landing_floor_plan_subtitle'),
+                        title: _safeLocalizedText(
+                          localizations,
+                          'landing_floor_plan_title',
+                          fallbackKey: 'table_floor_plan_title',
+                        ),
+                        subtitle: _safeLocalizedText(
+                          localizations,
+                          'landing_floor_plan_subtitle',
+                          fallbackKey: 'seating_chart_open_floor_plan',
+                        ),
                         accent: Colors.teal.shade400,
                         trailing: const Icon(
                           Icons.open_in_new,
