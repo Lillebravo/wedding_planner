@@ -296,8 +296,9 @@ class _LandingPageState extends State<LandingPage> {
   Widget _buildCoupleCard({
     required String name,
     required IconData icon,
-    required List<String> lines,
+    required String description,
     required Color accent,
+    String? imageUrl,
   }) {
     return Container(
       width: 260,
@@ -315,18 +316,43 @@ class _LandingPageState extends State<LandingPage> {
       ),
       child: Column(
         children: [
-          Container(
-            width: 150,
-            height: 150,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [accent.withValues(alpha: 0.18), accent],
-              ),
-            ),
-            child: Icon(icon, size: 68, color: Colors.white),
+          ClipOval(
+            child: imageUrl != null && imageUrl.trim().isNotEmpty
+                ? Image.network(
+                    imageUrl,
+                    width: 150,
+                    height: 150,
+                    fit: BoxFit.cover,
+                    filterQuality: FilterQuality.high,
+                    errorBuilder: (context, error, stackTrace) {
+                      return Container(
+                        width: 150,
+                        height: 150,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [accent.withValues(alpha: 0.18), accent],
+                          ),
+                        ),
+                        child: Icon(icon, size: 68, color: Colors.white),
+                      );
+                    },
+                  )
+                : Container(
+                    width: 150,
+                    height: 150,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [accent.withValues(alpha: 0.18), accent],
+                      ),
+                    ),
+                    child: Icon(icon, size: 68, color: Colors.white),
+                  ),
           ),
           const SizedBox(height: 20),
           Text(
@@ -340,7 +366,7 @@ class _LandingPageState extends State<LandingPage> {
           ),
           const SizedBox(height: 10),
           Text(
-            lines.join('\n'),
+            description,
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 15,
@@ -494,6 +520,74 @@ class _LandingPageState extends State<LandingPage> {
     );
   }
 
+  Wedding _currentWeddingWith({
+    String? partner1,
+    String? partner2,
+    String? dateStr,
+    String? timeStr,
+    String? churchAddress,
+    String? venueAddress,
+    String? coverImageUrl,
+    bool clearCoverImage = false,
+    List<Map<String, dynamic>>? itinerary,
+    bool? showMeetCouple,
+    bool? showCountdown,
+    bool? showDetails,
+    bool? showItinerary,
+    String? partner1Description,
+    String? partner2Description,
+    String? partner1ImageUrl,
+    bool clearPartner1Image = false,
+    String? partner2ImageUrl,
+    bool clearPartner2Image = false,
+  }) {
+    return Wedding(
+      id: _wedding!.id,
+      partner1: partner1 ?? _wedding!.partner1,
+      partner2: partner2 ?? _wedding!.partner2,
+      dateStr: dateStr ?? _wedding!.dateStr,
+      timeStr: timeStr ?? _wedding!.timeStr,
+      code: _wedding!.code,
+      adminCode: _wedding!.adminCode,
+      churchAddress: churchAddress ?? _wedding!.churchAddress,
+      venueAddress: venueAddress ?? _wedding!.venueAddress,
+      coverImageUrl: clearCoverImage
+          ? null
+          : (coverImageUrl ?? _wedding!.coverImageUrl),
+      itinerary: itinerary ?? _wedding!.itinerary,
+      showMeetCouple: showMeetCouple ?? _wedding!.showMeetCouple,
+      showCountdown: showCountdown ?? _wedding!.showCountdown,
+      showDetails: showDetails ?? _wedding!.showDetails,
+      showItinerary: showItinerary ?? _wedding!.showItinerary,
+      partner1Description: partner1Description ?? _wedding!.partner1Description,
+      partner2Description: partner2Description ?? _wedding!.partner2Description,
+      partner1ImageUrl: clearPartner1Image
+          ? null
+          : (partner1ImageUrl ?? _wedding!.partner1ImageUrl),
+      partner2ImageUrl: clearPartner2Image
+          ? null
+          : (partner2ImageUrl ?? _wedding!.partner2ImageUrl),
+    );
+  }
+
+  String _partnerDescription({
+    required bool isPartner1,
+    required AppLocalizationsController localizations,
+  }) {
+    final custom = isPartner1
+        ? _wedding!.partner1Description.trim()
+        : _wedding!.partner2Description.trim();
+    if (custom.isNotEmpty) {
+      return custom;
+    }
+
+    if (isPartner1) {
+      return '${localizations.text('landing_partner1_line1')}\n${localizations.text('landing_partner1_line2')}';
+    }
+
+    return '${localizations.text('landing_partner2_line1')}\n${localizations.text('landing_partner2_line2')}';
+  }
+
   Future<void> _saveWeddingWithCover({
     String? coverImageUrl,
     Color? coverBackgroundColor,
@@ -505,20 +599,9 @@ class _LandingPageState extends State<LandingPage> {
     setState(() => _isLoading = true);
 
     try {
-      final updatedWedding = Wedding(
-        id: _wedding!.id,
-        partner1: _wedding!.partner1,
-        partner2: _wedding!.partner2,
-        dateStr: _wedding!.dateStr,
-        timeStr: _wedding!.timeStr,
-        code: _wedding!.code,
-        adminCode: _wedding!.adminCode,
-        churchAddress: _wedding!.churchAddress,
-        venueAddress: _wedding!.venueAddress,
-        coverImageUrl: clearCoverImage
-            ? null
-            : (coverImageUrl ?? _wedding!.coverImageUrl),
-        itinerary: _wedding!.itinerary,
+      final updatedWedding = _currentWeddingWith(
+        coverImageUrl: coverImageUrl,
+        clearCoverImage: clearCoverImage,
       );
 
       final savedWedding = await StorageService.updateWedding(updatedWedding);
@@ -553,6 +636,16 @@ class _LandingPageState extends State<LandingPage> {
         ),
       );
     }
+  }
+
+  Future<void> _saveWeddingAndRefresh(Wedding updatedWedding) async {
+    final savedWedding = await StorageService.updateWedding(updatedWedding);
+    await StorageService.saveActiveWedding(savedWedding);
+    if (!mounted) return;
+    setState(() {
+      _wedding = savedWedding;
+      _isLoading = false;
+    });
   }
 
   void _logout() async {
@@ -713,7 +806,7 @@ class _LandingPageState extends State<LandingPage> {
 
   void _openSettingsEntry() {
     if (_isAdmin) {
-      _openSettingsDialog();
+      _openSettingsMenu();
       return;
     }
 
@@ -1060,6 +1153,427 @@ class _LandingPageState extends State<LandingPage> {
     );
   }
 
+  Future<void> _openSettingsMenu() async {
+    final localizations = AppLocalizationsScope.of(context);
+    final selectedAction = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.tune),
+                title: Text(localizations.text('landing_wedding_details_edit_title')),
+                onTap: () => Navigator.pop(context, 'details'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.view_list_outlined),
+                title: Text(localizations.text('landing_widgets_visibility_title')),
+                onTap: () => Navigator.pop(context, 'widgets'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.favorite_border),
+                title: Text(localizations.text('landing_couple_profile_settings_title')),
+                onTap: () => Navigator.pop(context, 'couple'),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (!mounted || selectedAction == null) return;
+
+    if (selectedAction == 'details') {
+      _openSettingsDialog();
+      return;
+    }
+
+    if (selectedAction == 'widgets') {
+      await _openWidgetVisibilityDialog();
+      return;
+    }
+
+    if (selectedAction == 'couple') {
+      await _openCoupleProfileDialog();
+    }
+  }
+
+  Future<void> _openWidgetVisibilityDialog() async {
+    if (_wedding == null) return;
+    final localizations = AppLocalizationsScope.of(context);
+
+    var showMeetCouple = _wedding!.showMeetCouple;
+    var showCountdown = _wedding!.showCountdown;
+    var showDetails = _wedding!.showDetails;
+    var showItinerary = _wedding!.showItinerary;
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: DialogTitleWithClose(
+            titleText: localizations.text('landing_widgets_visibility_title'),
+            onClose: () => Navigator.pop(ctx),
+          ),
+          content: SizedBox(
+            width: 420,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SwitchListTile.adaptive(
+                  value: showMeetCouple,
+                  title: Text(localizations.text('landing_widget_meet_couple')),
+                  onChanged: (value) => setDialogState(() => showMeetCouple = value),
+                ),
+                SwitchListTile.adaptive(
+                  value: showCountdown,
+                  title: Text(localizations.text('landing_widget_countdown')),
+                  onChanged: (value) => setDialogState(() => showCountdown = value),
+                ),
+                SwitchListTile.adaptive(
+                  value: showDetails,
+                  title: Text(localizations.text('landing_widget_details')),
+                  onChanged: (value) => setDialogState(() => showDetails = value),
+                ),
+                SwitchListTile.adaptive(
+                  value: showItinerary,
+                  title: Text(localizations.text('landing_widget_itinerary')),
+                  onChanged: (value) => setDialogState(() => showItinerary = value),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            DialogConfirmButton(
+              label: localizations.text('save'),
+              onPressed: () async {
+                setState(() => _isLoading = true);
+                Navigator.pop(ctx);
+
+                try {
+                  final updatedWedding = _currentWeddingWith(
+                    showMeetCouple: showMeetCouple,
+                    showCountdown: showCountdown,
+                    showDetails: showDetails,
+                    showItinerary: showItinerary,
+                  );
+                  await _saveWeddingAndRefresh(updatedWedding);
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(this.context).showSnackBar(
+                    SnackBar(
+                      content: Text(localizations.text('landing_widgets_visibility_saved')),
+                    ),
+                  );
+                } catch (e) {
+                  if (!mounted) return;
+                  setState(() => _isLoading = false);
+                  ScaffoldMessenger.of(this.context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        localizations.text('error_with_message', values: {'error': '$e'}),
+                      ),
+                    ),
+                  );
+                }
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _setPartnerImage({
+    required bool isPartner1,
+    required String imageUrl,
+  }) async {
+    setState(() => _isLoading = true);
+
+    try {
+      final updatedWedding = isPartner1
+          ? _currentWeddingWith(partner1ImageUrl: imageUrl)
+          : _currentWeddingWith(partner2ImageUrl: imageUrl);
+      await _saveWeddingAndRefresh(updatedWedding);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      rethrow;
+    }
+  }
+
+  Future<void> _uploadPartnerImage({required bool isPartner1}) async {
+    if (_wedding == null) return;
+    final localizations = AppLocalizationsScope.of(context);
+    final result = await FilePicker.pickFiles(type: FileType.image, withData: true);
+    final selectedFile = result?.files.single;
+
+    if (selectedFile == null) {
+      return;
+    }
+
+    if (!mounted) return;
+    if (selectedFile.bytes == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(localizations.text('landing_cover_read_failed'))),
+      );
+      return;
+    }
+
+    final prefix = isPartner1 ? 'partner1_' : 'partner2_';
+    final uploadResult = await StorageService.uploadCoverImage(
+      _wedding!.id,
+      '$prefix${selectedFile.name}',
+      selectedFile.bytes!,
+    );
+
+    if (!mounted) return;
+    if (!uploadResult.isSuccess) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(uploadResult.errorMessage ?? localizations.text('landing_cover_upload_failed')),
+        ),
+      );
+      return;
+    }
+
+    try {
+      await _setPartnerImage(isPartner1: isPartner1, imageUrl: uploadResult.publicUrl!);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(localizations.text('landing_couple_picture_saved'))),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            localizations.text('error_with_message', values: {'error': '$e'}),
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _selectUploadedPartnerImage({required bool isPartner1}) async {
+    if (_wedding == null) return;
+    final localizations = AppLocalizationsScope.of(context);
+
+    final imageUrls = await StorageService.listCoverImageUrls(_wedding!.id);
+    if (!mounted) return;
+
+    if (imageUrls.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(localizations.text('landing_cover_no_uploaded_images'))),
+      );
+      return;
+    }
+
+    final selectedUrl = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: DialogTitleWithClose(
+          titleText: localizations.text('landing_cover_select'),
+          onClose: () => Navigator.pop(dialogContext),
+        ),
+        content: SizedBox(
+          width: 520,
+          height: 380,
+          child: GridView.builder(
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              crossAxisSpacing: 10,
+              mainAxisSpacing: 10,
+            ),
+            itemCount: imageUrls.length,
+            itemBuilder: (context, index) {
+              final imageUrl = imageUrls[index];
+              return InkWell(
+                onTap: () => Navigator.pop(dialogContext, imageUrl),
+                borderRadius: BorderRadius.circular(12),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Image.network(
+                    imageUrl,
+                    fit: BoxFit.cover,
+                    filterQuality: FilterQuality.high,
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+
+    if (selectedUrl == null || !mounted) return;
+
+    try {
+      await _setPartnerImage(isPartner1: isPartner1, imageUrl: selectedUrl);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(localizations.text('landing_couple_picture_saved'))),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            localizations.text('error_with_message', values: {'error': '$e'}),
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _openPartnerImageMenu({required bool isPartner1}) async {
+    final localizations = AppLocalizationsScope.of(context);
+    final selectedAction = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.upload_file_outlined),
+              title: Text(localizations.text('landing_cover_upload_new')),
+              onTap: () => Navigator.pop(context, 'upload'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: Text(localizations.text('landing_cover_pick_uploaded')),
+              onTap: () => Navigator.pop(context, 'select'),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+
+    if (!mounted || selectedAction == null) return;
+
+    if (selectedAction == 'upload') {
+      await _uploadPartnerImage(isPartner1: isPartner1);
+      return;
+    }
+
+    if (selectedAction == 'select') {
+      await _selectUploadedPartnerImage(isPartner1: isPartner1);
+    }
+  }
+
+  Future<void> _openCoupleProfileDialog() async {
+    if (_wedding == null) return;
+    final localizations = AppLocalizationsScope.of(context);
+    final partner1DescriptionController = TextEditingController(
+      text: _wedding!.partner1Description,
+    );
+    final partner2DescriptionController = TextEditingController(
+      text: _wedding!.partner2Description,
+    );
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: DialogTitleWithClose(
+          titleText: localizations.text('landing_couple_profile_settings_title'),
+          onClose: () => Navigator.pop(ctx),
+        ),
+        content: SizedBox(
+          width: 460,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: CircleAvatar(
+                    backgroundImage: _wedding!.partner1ImageUrl != null
+                        ? NetworkImage(_wedding!.partner1ImageUrl!)
+                        : null,
+                    child: _wedding!.partner1ImageUrl == null
+                        ? const Icon(Icons.local_florist)
+                        : null,
+                  ),
+                  title: Text(_wedding!.partner1),
+                  subtitle: Text(localizations.text('landing_couple_picture_label')),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.edit_outlined),
+                    onPressed: () => _openPartnerImageMenu(isPartner1: true),
+                  ),
+                ),
+                AppLabeledTextField(
+                  controller: partner1DescriptionController,
+                  labelText: localizations.text('landing_partner_1_description'),
+                ),
+                const SizedBox(height: 12),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: CircleAvatar(
+                    backgroundImage: _wedding!.partner2ImageUrl != null
+                        ? NetworkImage(_wedding!.partner2ImageUrl!)
+                        : null,
+                    child: _wedding!.partner2ImageUrl == null
+                        ? const Icon(Icons.favorite)
+                        : null,
+                  ),
+                  title: Text(_wedding!.partner2),
+                  subtitle: Text(localizations.text('landing_couple_picture_label')),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.edit_outlined),
+                    onPressed: () => _openPartnerImageMenu(isPartner1: false),
+                  ),
+                ),
+                AppLabeledTextField(
+                  controller: partner2DescriptionController,
+                  labelText: localizations.text('landing_partner_2_description'),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          DialogConfirmButton(
+            label: localizations.text('save'),
+            onPressed: () async {
+              setState(() => _isLoading = true);
+              Navigator.pop(ctx);
+
+              try {
+                final updatedWedding = _currentWeddingWith(
+                  partner1Description: partner1DescriptionController.text.trim(),
+                  partner2Description: partner2DescriptionController.text.trim(),
+                );
+                await _saveWeddingAndRefresh(updatedWedding);
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(localizations.text('landing_details_updated'))),
+                );
+              } catch (e) {
+                if (!mounted) return;
+                setState(() => _isLoading = false);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      localizations.text('error_with_message', values: {'error': '$e'}),
+                    ),
+                  ),
+                );
+              }
+            },
+          ),
+        ],
+      ),
+    );
+
+    partner1DescriptionController.dispose();
+    partner2DescriptionController.dispose();
+  }
+
   // Den stora inställningsmenyn för Bröllopet
   void _openSettingsDialog() {
     final localizations = AppLocalizationsScope.of(context);
@@ -1187,36 +1701,24 @@ class _LandingPageState extends State<LandingPage> {
                   final navigator = Navigator.of(ctx);
                   final messenger = ScaffoldMessenger.of(context);
 
-                  final updatedWedding = Wedding(
-                    id: _wedding!.id,
+                  final updatedWedding = _currentWeddingWith(
                     partner1: p1Ctrl.text.trim(),
                     partner2: p2Ctrl.text.trim(),
                     dateStr: selectedDate != null
                         ? formatIsoDate(selectedDate!)
-                      : localizations.text('not_set'),
+                        : localizations.text('not_set'),
                     timeStr: selectedTime != null
                         ? formatHHmm(selectedTime!)
-                      : localizations.text('not_set'),
-                    code: _wedding!.code,
-                    adminCode: _wedding!.adminCode,
+                        : localizations.text('not_set'),
                     churchAddress: churchCtrl.text.trim(),
                     venueAddress: venueCtrl.text.trim(),
-                    coverImageUrl: _wedding!.coverImageUrl,
-                    itinerary: _wedding!.itinerary,
                   );
 
                   setState(() => _isLoading = true);
                   navigator.pop();
 
                   try {
-                    final saved = await StorageService.updateWedding(
-                      updatedWedding,
-                    );
-                    await StorageService.saveActiveWedding(saved);
-                    setState(() {
-                      _wedding = saved;
-                      _isLoading = false;
-                    });
+                    await _saveWeddingAndRefresh(updatedWedding);
                     messenger.showSnackBar(
                       SnackBar(content: Text(localizations.text('landing_details_updated'))),
                     );
@@ -1492,17 +1994,7 @@ class _LandingPageState extends State<LandingPage> {
                 label: localizations.text('save'),
                 onPressed: () async {
                   final nav = Navigator.of(ctx);
-                  final updatedWedding = Wedding(
-                    id: _wedding!.id,
-                    partner1: _wedding!.partner1,
-                    partner2: _wedding!.partner2,
-                    dateStr: _wedding!.dateStr,
-                    timeStr: _wedding!.timeStr,
-                    code: _wedding!.code,
-                    adminCode: _wedding!.adminCode,
-                    churchAddress: _wedding!.churchAddress,
-                    venueAddress: _wedding!.venueAddress,
-                    coverImageUrl: _wedding!.coverImageUrl,
+                  final updatedWedding = _currentWeddingWith(
                     itinerary: tempItinerary,
                   );
 
@@ -1510,14 +2002,7 @@ class _LandingPageState extends State<LandingPage> {
                   nav.pop();
 
                   try {
-                    final saved = await StorageService.updateWedding(
-                      updatedWedding,
-                    );
-                    await StorageService.saveActiveWedding(saved);
-                    setState(() {
-                      _wedding = saved;
-                      _isLoading = false;
-                    });
+                    await _saveWeddingAndRefresh(updatedWedding);
                   } catch (e) {
                     setState(() => _isLoading = false);
                   }
@@ -1762,19 +2247,21 @@ class _LandingPageState extends State<LandingPage> {
                           name: _wedding!.partner1,
                           icon: Icons.local_florist,
                           accent: const Color(0xFFE4A7B6),
-                          lines: [
-                            localizations.text('landing_partner1_line1'),
-                            localizations.text('landing_partner1_line2'),
-                          ],
+                          description: _partnerDescription(
+                            isPartner1: true,
+                            localizations: localizations,
+                          ),
+                          imageUrl: _wedding!.partner1ImageUrl,
                         ),
                         _buildCoupleCard(
                           name: _wedding!.partner2,
                           icon: Icons.favorite,
                           accent: const Color(0xFFD6A35D),
-                          lines: [
-                            localizations.text('landing_partner2_line1'),
-                            localizations.text('landing_partner2_line2'),
-                          ],
+                          description: _partnerDescription(
+                            isPartner1: false,
+                            localizations: localizations,
+                          ),
+                          imageUrl: _wedding!.partner2ImageUrl,
                         ),
                       ],
                     );
@@ -1860,15 +2347,23 @@ class _LandingPageState extends State<LandingPage> {
                       );
                     }
 
-                    final sectionWidgets = <Widget>[
-                      _buildSectionTitle(
-                        title: localizations.text('landing_meet_couple_title'),
-                        subtitle: localizations.text('landing_meet_couple_subtitle'),
-                      ),
-                      const SizedBox(height: 18),
-                      coupleCards,
-                      const SizedBox(height: 40),
-                      Container(
+                    final sectionWidgets = <Widget>[];
+
+                    if (_wedding!.showMeetCouple) {
+                      sectionWidgets.addAll([
+                        _buildSectionTitle(
+                          title: localizations.text('landing_meet_couple_title'),
+                          subtitle: localizations.text('landing_meet_couple_subtitle'),
+                        ),
+                        const SizedBox(height: 18),
+                        coupleCards,
+                        const SizedBox(height: 40),
+                      ]);
+                    }
+
+                    if (_wedding!.showCountdown) {
+                      sectionWidgets.add(
+                        Container(
                         width: double.infinity,
                         padding: const EdgeInsets.symmetric(
                           horizontal: 22,
@@ -1983,38 +2478,67 @@ class _LandingPageState extends State<LandingPage> {
                             ),
                           ],
                         ),
-                      ),
-                      const SizedBox(height: 22),
-                      ...detailTiles,
-                      const SizedBox(height: 26),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            localizations.text('landing_itinerary_title'),
-                            style: theme.textTheme.headlineSmall?.copyWith(
-                              fontWeight: FontWeight.w700,
-                              color: const Color(0xFF2B1F26),
+                      ));
+                    }
+
+                    if (_wedding!.showDetails) {
+                      sectionWidgets.addAll([
+                        const SizedBox(height: 22),
+                        ...detailTiles,
+                      ]);
+                    }
+
+                    if (_wedding!.showItinerary) {
+                      sectionWidgets.addAll([
+                        const SizedBox(height: 26),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              localizations.text('landing_itinerary_title'),
+                              style: theme.textTheme.headlineSmall?.copyWith(
+                                fontWeight: FontWeight.w700,
+                                color: const Color(0xFF2B1F26),
+                              ),
+                            ),
+                            if (_isAdmin)
+                              IconButton(
+                                icon: const Icon(
+                                  Icons.edit_calendar,
+                                  color: Colors.pink,
+                                ),
+                                onPressed: _openItineraryDialog,
+                              ),
+                          ],
+                        ),
+                      ]);
+
+                      if (_wedding!.itinerary.isEmpty) {
+                        sectionWidgets.add(
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Text(
+                              localizations.text('landing_itinerary_none_yet'),
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                fontStyle: FontStyle.italic,
+                                color: Colors.grey,
+                              ),
                             ),
                           ),
-                          if (_isAdmin)
-                            IconButton(
-                              icon: const Icon(
-                                Icons.edit_calendar,
-                                color: Colors.pink,
-                              ),
-                              onPressed: _openItineraryDialog,
-                            ),
-                        ],
-                      ),
-                    ];
+                        );
+                      } else {
+                        for (final event in _wedding!.itinerary) {
+                          sectionWidgets.add(_buildScheduleItem(event, localizations));
+                        }
+                      }
+                    }
 
-                    if (_wedding!.itinerary.isEmpty) {
+                    if (sectionWidgets.isEmpty) {
                       sectionWidgets.add(
                         Padding(
-                          padding: const EdgeInsets.only(top: 4),
+                          padding: const EdgeInsets.only(top: 12),
                           child: Text(
-                            localizations.text('landing_itinerary_none_yet'),
+                            localizations.text('landing_widgets_none_visible'),
                             style: theme.textTheme.bodyMedium?.copyWith(
                               fontStyle: FontStyle.italic,
                               color: Colors.grey,
@@ -2022,10 +2546,6 @@ class _LandingPageState extends State<LandingPage> {
                           ),
                         ),
                       );
-                    } else {
-                      for (final event in _wedding!.itinerary) {
-                        sectionWidgets.add(_buildScheduleItem(event, localizations));
-                      }
                     }
 
                     return Column(

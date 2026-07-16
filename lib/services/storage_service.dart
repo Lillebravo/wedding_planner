@@ -157,6 +157,14 @@ class StorageService {
           'party_address': wedding.venueAddress,
           'cover_image_url': wedding.coverImageUrl,
           'itinerary': wedding.itinerary,
+          'show_meet_couple': wedding.showMeetCouple,
+          'show_countdown': wedding.showCountdown,
+          'show_details': wedding.showDetails,
+          'show_itinerary': wedding.showItinerary,
+          'partner1_description': wedding.partner1Description,
+          'partner2_description': wedding.partner2Description,
+          'partner1_image_url': wedding.partner1ImageUrl,
+          'partner2_image_url': wedding.partner2ImageUrl,
         })
         .eq('id', wedding.id)
         .select()
@@ -184,6 +192,14 @@ class StorageService {
           'party_address': wedding.venueAddress,
           'cover_image_url': wedding.coverImageUrl,
           'itinerary': wedding.itinerary,
+          'show_meet_couple': wedding.showMeetCouple,
+          'show_countdown': wedding.showCountdown,
+          'show_details': wedding.showDetails,
+          'show_itinerary': wedding.showItinerary,
+          'partner1_description': wedding.partner1Description,
+          'partner2_description': wedding.partner2Description,
+          'partner1_image_url': wedding.partner1ImageUrl,
+          'partner2_image_url': wedding.partner2ImageUrl,
         })
         .select()
         .single();
