@@ -13,8 +13,13 @@ import '../widgets/language_toggle_button.dart';
 
 class TableFloorPlanPage extends StatefulWidget {
   final String weddingId;
+  final bool readOnly;
 
-  const TableFloorPlanPage({super.key, required this.weddingId});
+  const TableFloorPlanPage({
+    super.key,
+    required this.weddingId,
+    this.readOnly = false,
+  });
 
   @override
   State<TableFloorPlanPage> createState() => _TableFloorPlanPageState();
@@ -88,12 +93,13 @@ class _TableFloorPlanPageState extends State<TableFloorPlanPage> {
       _tables = loadedTables;
       _tablePositions = resolvedLayout;
       _guestsByTable = guestsByTable;
-      _showGuests = savedShowGuests ?? true;
+      _showGuests = widget.readOnly ? true : (savedShowGuests ?? true);
       _isLoading = false;
     });
 
     if (savedLayout.length != resolvedLayout.length &&
-        resolvedLayout.isNotEmpty) {
+        resolvedLayout.isNotEmpty &&
+        !widget.readOnly) {
       await StorageService.saveTableLayout(widget.weddingId, resolvedLayout);
     }
   }
@@ -620,62 +626,68 @@ class _TableFloorPlanPageState extends State<TableFloorPlanPage> {
                 label: Text(localizations.text('center_view')),
               ),
               const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
+              if (!widget.readOnly) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.72),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: const Color(0xFFD8CDD0)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.people_outline, size: 18),
+                      const SizedBox(width: 6),
+                      Text(localizations.text('show_guests')),
+                      const SizedBox(width: 6),
+                      Switch.adaptive(
+                        value: _showGuests,
+                        onChanged: (value) async {
+                          setState(() {
+                            _showGuests = value;
+                          });
+                          await StorageService.saveFloorPlanShowGuests(
+                            widget.weddingId,
+                            value,
+                          );
+                        },
+                      ),
+                    ],
+                  ),
                 ),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.72),
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: const Color(0xFFD8CDD0)),
+                const SizedBox(width: 8),
+              ],
+              if (!widget.readOnly) ...[
+                ElevatedButton.icon(
+                  onPressed: _isSaving
+                      ? null
+                      : () => _persistLayout(showFeedback: true),
+                  icon: _isSaving
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.save),
+                  label: Text(localizations.text('save')),
                 ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.people_outline, size: 18),
-                    const SizedBox(width: 6),
-                    Text(localizations.text('show_guests')),
-                    const SizedBox(width: 6),
-                    Switch.adaptive(
-                      value: _showGuests,
-                      onChanged: (value) async {
-                        setState(() {
-                          _showGuests = value;
-                        });
-                        await StorageService.saveFloorPlanShowGuests(
-                          widget.weddingId,
-                          value,
-                        );
-                      },
-                    ),
-                  ],
+                const SizedBox(width: 8),
+                ElevatedButton.icon(
+                  onPressed: () => _openTableFormDialog(),
+                  icon: const Icon(Icons.add),
+                  label: Text(localizations.text('add_table')),
                 ),
-              ),
-              const SizedBox(width: 8),
-              ElevatedButton.icon(
-                onPressed: _isSaving
-                    ? null
-                    : () => _persistLayout(showFeedback: true),
-                icon: _isSaving
-                    ? const SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.save),
-                label: Text(localizations.text('save')),
-              ),
-              const SizedBox(width: 8),
-              ElevatedButton.icon(
-                onPressed: () => _openTableFormDialog(),
-                icon: const Icon(Icons.add),
-                label: Text(localizations.text('add_table')),
-              ),
+              ],
             ],
           ),
           const SizedBox(height: 10),
           Text(
-            localizations.text('floor_plan_help'),
+            widget.readOnly
+                ? localizations.text('floor_plan_read_only_hint')
+                : localizations.text('floor_plan_help'),
             style: TextStyle(color: Colors.grey.shade700),
           ),
         ],
@@ -884,13 +896,6 @@ class _TableFloorPlanPageState extends State<TableFloorPlanPage> {
     final position = _tablePositions[tableId] ?? const Offset(0, 0);
     final size = _tableVisualSize(table);
     final seats = (table['seats'] as int?) ?? 0;
-    final shapeLabel = switch (shape) {
-      'cirkel' => localizations.text('table_round'),
-      'oval' => localizations.text('table_oval'),
-      'kvadrat' => localizations.text('table_square'),
-      _ => localizations.text('table_rectangle'),
-    };
-
     final decoration = switch (shape) {
       'cirkel' => BoxDecoration(
         color: const Color(0xFFFFF5EA),
@@ -946,8 +951,10 @@ class _TableFloorPlanPageState extends State<TableFloorPlanPage> {
       left: position.dx,
       top: position.dy,
       child: GestureDetector(
-        onPanUpdate: (details) => _moveTable(tableId, details.delta),
-        onPanEnd: (_) => _persistLayout(),
+        onPanUpdate: widget.readOnly
+            ? null
+            : (details) => _moveTable(tableId, details.delta),
+        onPanEnd: widget.readOnly ? null : (_) => _persistLayout(),
         child: SizedBox(
           width: size.width,
           height: size.height,
@@ -972,7 +979,7 @@ class _TableFloorPlanPageState extends State<TableFloorPlanPage> {
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          '$shapeLabel • $seats ${seats == 1 ? localizations.text('table_singular') : localizations.text('table_plural')}',
+                          '$seats ${seats == 1 ? localizations.text('table_singular') : localizations.text('table_plural')}',
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             color: Colors.grey.shade700,
@@ -980,7 +987,10 @@ class _TableFloorPlanPageState extends State<TableFloorPlanPage> {
                           ),
                         ),
                         const SizedBox(height: 8),
-                        const Icon(Icons.drag_indicator, size: 18),
+                        Icon(
+                          widget.readOnly ? Icons.visibility : Icons.drag_indicator,
+                          size: 18,
+                        ),
                       ],
                     ),
                   ),

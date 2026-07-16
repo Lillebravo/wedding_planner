@@ -5,6 +5,7 @@ class Wedding {
   final String dateStr; 
   final String timeStr; 
   final String code;
+  final String adminCode;
   final String churchAddress;
   final String venueAddress; // Säkerställd till venueAddress
   final String? coverImageUrl;
@@ -17,6 +18,7 @@ class Wedding {
     required this.dateStr,
     required this.timeStr,
     required this.code,
+    this.adminCode = '',
     required this.churchAddress,
     required this.venueAddress,
     this.coverImageUrl,
@@ -30,6 +32,7 @@ class Wedding {
     'date': dateStr == 'Ej satt' ? null : dateStr,
     'time': timeStr,
     'wedding_code': code,
+    'admin_code': adminCode,
     'ceremony_address': churchAddress,
     'party_address': venueAddress, // Mappar mot party_address i Supabase
     'cover_image_url': coverImageUrl,
@@ -43,6 +46,7 @@ class Wedding {
     dateStr: json['date'] ?? 'Ej satt',
     timeStr: json['time'] ?? 'Ej satt',
     code: json['wedding_code'] ?? '',
+    adminCode: (json['admin_code'] ?? '').toString(),
     churchAddress: json['ceremony_address'] ?? '',
     venueAddress: json['party_address'] ?? '', // Läser från party_address
     coverImageUrl: json['cover_image_url'],

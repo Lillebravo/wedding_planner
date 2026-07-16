@@ -133,6 +133,10 @@ class _OnboardingPageState extends State<OnboardingPage> {
         }
 
         await StorageService.saveActiveWedding(activeWedding);
+        await StorageService.bootstrapAdminForLogin(
+          activeWedding,
+          joinedExistingWedding: _isConnecting,
+        );
 
         if (!mounted) return;
         Navigator.pushReplacement(

@@ -16,6 +16,7 @@ import '../widgets/language_toggle_button.dart';
 import '../widgets/preset_options_input.dart';
 import 'guest_list_page.dart';
 import 'onboarding_page.dart';
+import 'table_floor_plan_page.dart';
 
 class LandingPage extends StatefulWidget {
   const LandingPage({super.key});
@@ -28,6 +29,7 @@ class _LandingPageState extends State<LandingPage> {
   static const String _defaultHeroImage =
       'https://images.unsplash.com/photo-1511285560929-80b456fea0bc?auto=format&fit=crop&w=1600&q=80';
   Wedding? _wedding;
+  bool _isAdmin = false;
   bool _isLoading = true;
   Color _coverBackgroundColor = const Color(0xFFFCE4EC);
   bool _showHero = false;
@@ -74,15 +76,18 @@ class _LandingPageState extends State<LandingPage> {
   void _loadWeddingData() async {
     Wedding? w = await StorageService.getActiveWedding();
     Color bgColor = const Color(0xFFFCE4EC);
+    bool isAdmin = false;
     if (w != null) {
       final savedBg = await StorageService.getCoverBackgroundColorValue(w.id);
       if (savedBg != null) {
         bgColor = Color(savedBg);
       }
+      isAdmin = await StorageService.isAdminForWedding(w);
     }
 
     setState(() {
       _wedding = w;
+      _isAdmin = isAdmin;
       _coverBackgroundColor = bgColor;
       _isLoading = false;
       _showHero = false;
@@ -489,6 +494,7 @@ class _LandingPageState extends State<LandingPage> {
         dateStr: _wedding!.dateStr,
         timeStr: _wedding!.timeStr,
         code: _wedding!.code,
+        adminCode: _wedding!.adminCode,
         churchAddress: _wedding!.churchAddress,
         venueAddress: _wedding!.venueAddress,
         coverImageUrl: clearCoverImage
@@ -538,6 +544,158 @@ class _LandingPageState extends State<LandingPage> {
       context,
       MaterialPageRoute(builder: (context) => const OnboardingPage()),
     );
+  }
+
+  Future<void> _copyAdminCode() async {
+    final localizations = AppLocalizationsScope.of(context);
+    if (_wedding == null) return;
+
+    final adminCode = await StorageService.getCachedAdminCode(_wedding!.id);
+    if (adminCode == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(localizations.text('admin_code_not_cached'))),
+      );
+      return;
+    }
+
+    await Clipboard.setData(ClipboardData(text: adminCode));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(localizations.text('admin_code_copied'))),
+    );
+  }
+
+  Future<void> _showAdminCodeDialog() async {
+    if (_wedding == null) return;
+    final adminCode = await StorageService.getCachedAdminCode(_wedding!.id);
+    if (!mounted) return;
+    final localizations = AppLocalizationsScope.of(context);
+
+    if (adminCode == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(localizations.text('admin_code_not_cached'))),
+      );
+      return;
+    }
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: DialogTitleWithClose(
+          titleText: localizations.text('admin_code_title'),
+          onClose: () => Navigator.pop(dialogContext),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(localizations.text('admin_code_hint')),
+            const SizedBox(height: 12),
+            SelectableText(
+              adminCode,
+              style: const TextStyle(
+                fontSize: 30,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 3,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton.icon(
+            onPressed: () {
+              _copyAdminCode();
+              Navigator.pop(dialogContext);
+            },
+            icon: const Icon(Icons.copy),
+            label: Text(localizations.text('copy_admin_code')),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openAdminUnlockDialog() async {
+    if (_wedding == null) return;
+    final localizations = AppLocalizationsScope.of(context);
+    final codeController = TextEditingController();
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: DialogTitleWithClose(
+          titleText: localizations.text('admin_unlock_title'),
+          onClose: () => Navigator.pop(dialogContext),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(localizations.text('admin_unlock_hint')),
+            const SizedBox(height: 12),
+            TextField(
+              controller: codeController,
+              keyboardType: TextInputType.number,
+              maxLength: 6,
+              obscureText: true,
+              decoration: InputDecoration(
+                labelText: localizations.text('admin_code_label'),
+                counterText: '',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          DialogConfirmButton(
+            label: localizations.text('unlock_admin_mode'),
+            onPressed: () async {
+              final messenger = ScaffoldMessenger.of(context);
+              final navigator = Navigator.of(dialogContext);
+              final unlocked = await StorageService.unlockAdminForWedding(
+                _wedding!,
+                codeController.text,
+              );
+              if (!mounted) return;
+
+              if (!unlocked) {
+                messenger.showSnackBar(
+                  SnackBar(content: Text(localizations.text('admin_unlock_failed'))),
+                );
+                return;
+              }
+
+              setState(() => _isAdmin = true);
+              navigator.pop();
+              messenger.showSnackBar(
+                SnackBar(content: Text(localizations.text('admin_unlock_success'))),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _leaveAdminMode() async {
+    if (_wedding == null) return;
+    final localizations = AppLocalizationsScope.of(context);
+    await StorageService.clearAdminForWedding(_wedding!.id);
+    if (!mounted) return;
+    setState(() => _isAdmin = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(localizations.text('admin_mode_disabled'))),
+    );
+  }
+
+  void _openSettingsEntry() {
+    if (_isAdmin) {
+      _openSettingsDialog();
+      return;
+    }
+
+    _openAdminUnlockDialog();
   }
 
   // Ny funktion för att öppna kartor
@@ -911,6 +1069,40 @@ class _LandingPageState extends State<LandingPage> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(bottom: 16),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF7F3F4),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          localizations.text('admin_settings_title'),
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                localizations.text('admin_settings_hint'),
+                                style: const TextStyle(fontSize: 13),
+                              ),
+                            ),
+                            TextButton.icon(
+                              onPressed: _showAdminCodeDialog,
+                              icon: const Icon(Icons.visibility_outlined),
+                              label: Text(localizations.text('show_admin_code')),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
                   AppLabeledTextField(
                     controller: p1Ctrl,
                     labelText: localizations.text('landing_partner_1'),
@@ -960,6 +1152,13 @@ class _LandingPageState extends State<LandingPage> {
               ),
             ),
             actions: [
+              TextButton(
+                onPressed: () async {
+                  Navigator.pop(ctx);
+                  await _leaveAdminMode();
+                },
+                child: Text(localizations.text('leave_admin_mode')),
+              ),
               DialogConfirmButton(
                 label: localizations.text('save'),
                 onPressed: () async {
@@ -977,6 +1176,7 @@ class _LandingPageState extends State<LandingPage> {
                         ? formatHHmm(selectedTime!)
                       : localizations.text('not_set'),
                     code: _wedding!.code,
+                    adminCode: _wedding!.adminCode,
                     churchAddress: churchCtrl.text.trim(),
                     venueAddress: venueCtrl.text.trim(),
                     coverImageUrl: _wedding!.coverImageUrl,
@@ -1277,6 +1477,7 @@ class _LandingPageState extends State<LandingPage> {
                     dateStr: _wedding!.dateStr,
                     timeStr: _wedding!.timeStr,
                     code: _wedding!.code,
+                    adminCode: _wedding!.adminCode,
                     churchAddress: _wedding!.churchAddress,
                     venueAddress: _wedding!.venueAddress,
                     coverImageUrl: _wedding!.coverImageUrl,
@@ -1345,18 +1546,19 @@ class _LandingPageState extends State<LandingPage> {
               IconButton(
                 icon: const Icon(Icons.settings),
                 tooltip: localizations.text('landing_settings'),
-                onPressed: _openSettingsDialog,
+                onPressed: _openSettingsEntry,
               ),
-              IconButton(
-                icon: const Icon(Icons.people),
-                tooltip: localizations.text('landing_guest_list'),
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const GuestListPage(),
+              if (_isAdmin)
+                IconButton(
+                  icon: const Icon(Icons.people),
+                  tooltip: localizations.text('landing_guest_list'),
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const GuestListPage(),
+                    ),
                   ),
                 ),
-              ),
               IconButton(
                 icon: const Icon(Icons.logout),
                 tooltip: localizations.text('landing_logout'),
@@ -1556,23 +1758,43 @@ class _LandingPageState extends State<LandingPage> {
                     );
 
                     final detailTiles = <Widget>[
-                      _buildInfoTile(
-                        icon: Icons.groups_2_outlined,
-                        title: localizations.text('landing_share_code_title'),
-                        subtitle: _wedding!.code,
-                        accent: Colors.pink.shade400,
-                        trailing: IconButton.filledTonal(
-                          icon: const Icon(Icons.copy),
-                          tooltip: localizations.text('landing_copy_code'),
-                          onPressed: _copyWeddingCode,
+                      if (_isAdmin)
+                        _buildInfoTile(
+                          icon: Icons.groups_2_outlined,
+                          title: localizations.text('landing_share_code_title'),
+                          subtitle: _wedding!.code,
+                          accent: Colors.pink.shade400,
+                          trailing: IconButton.filledTonal(
+                            icon: const Icon(Icons.copy),
+                            tooltip: localizations.text('landing_copy_code'),
+                            onPressed: _copyWeddingCode,
+                          ),
                         ),
-                      ),
                       _buildInfoTile(
                         icon: Icons.calendar_month,
                         title: localizations.text('landing_wedding_day_title'),
                         subtitle:
                             '${_wedding!.dateStr}\n${localizations.text('landing_time_prefix')}: ${_wedding!.timeStr}',
                         accent: Colors.pink.shade400,
+                      ),
+                      _buildInfoTile(
+                        icon: Icons.grid_view_rounded,
+                        title: localizations.text('landing_floor_plan_title'),
+                        subtitle: localizations.text('landing_floor_plan_subtitle'),
+                        accent: Colors.teal.shade400,
+                        trailing: const Icon(
+                          Icons.open_in_new,
+                          color: Colors.grey,
+                        ),
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => TableFloorPlanPage(
+                              weddingId: _wedding!.id,
+                              readOnly: !_isAdmin,
+                            ),
+                          ),
+                        ),
                       ),
                     ];
 
@@ -1745,13 +1967,14 @@ class _LandingPageState extends State<LandingPage> {
                               color: const Color(0xFF2B1F26),
                             ),
                           ),
-                          IconButton(
-                            icon: const Icon(
-                              Icons.edit_calendar,
-                              color: Colors.pink,
+                          if (_isAdmin)
+                            IconButton(
+                              icon: const Icon(
+                                Icons.edit_calendar,
+                                color: Colors.pink,
+                              ),
+                              onPressed: _openItineraryDialog,
                             ),
-                            onPressed: _openItineraryDialog,
-                          ),
                         ],
                       ),
                     ];

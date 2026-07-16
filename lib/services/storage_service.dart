@@ -1,6 +1,8 @@
 import 'dart:convert';
+import 'dart:math';
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
+import 'package:crypto/crypto.dart' as crypto;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/wedding_model.dart';
@@ -23,6 +25,7 @@ class StorageService {
   static const String _coverBgPrefix = 'cover_bg_';
   static const String _placementRulesPrefix = 'placement_rules_';
   static const String _floorPlanShowGuestsPrefix = 'floor_plan_show_guests_';
+  static const String _adminCodeCachePrefix = 'admin_code_cache_';
   static final RegExp _uuidPattern = RegExp(
     r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$',
   );
@@ -46,6 +49,83 @@ class StorageService {
   static Future<void> clearActiveWedding() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_weddingKey);
+  }
+
+  static Future<void> bootstrapAdminForLogin(
+    Wedding wedding, {
+    required bool joinedExistingWedding,
+  }) async {
+    // Creator device cache is set during wedding creation in saveNewWeddingToList.
+    // Existing wedding joins should default to guest until admin code is entered.
+  }
+
+  static Future<bool> isAdminForWedding(Wedding wedding) async {
+    final adminCodeHash = wedding.adminCode.trim();
+    if (adminCodeHash.isEmpty) return false;
+
+    final prefs = await SharedPreferences.getInstance();
+    final cached = prefs.getString('$_adminCodeCachePrefix${wedding.id}') ?? '';
+    if (cached.trim().isEmpty) return false;
+
+    return _hashAdminCode(cached.trim()) == adminCodeHash;
+  }
+
+  static Future<void> _cacheAdminCodeForWedding(
+    String weddingId,
+    String adminCode,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('$_adminCodeCachePrefix$weddingId', adminCode.trim());
+  }
+
+  static Future<void> clearAdminForWedding(String weddingId) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('$_adminCodeCachePrefix$weddingId');
+  }
+
+  static String getAdminCode(Wedding wedding) {
+    return wedding.adminCode.trim();
+  }
+
+  static Future<String?> getCachedAdminCode(String weddingId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final value = prefs.getString('$_adminCodeCachePrefix$weddingId') ?? '';
+    final normalized = value.trim();
+    return normalized.isEmpty ? null : normalized;
+  }
+
+  static String generateAdminCode() {
+    final random = Random.secure();
+    final codeNumber = random.nextInt(900000) + 100000;
+    return codeNumber.toString();
+  }
+
+  static bool validateAdminCode(Wedding wedding, String input) {
+    final cleaned = input.trim();
+    if (!RegExp(r'^\d{6}$').hasMatch(cleaned)) {
+      return false;
+    }
+    final adminCodeHash = wedding.adminCode.trim();
+    if (adminCodeHash.isEmpty) return false;
+    return _hashAdminCode(cleaned) == adminCodeHash;
+  }
+
+  static Future<bool> unlockAdminForWedding(
+    Wedding wedding,
+    String input,
+  ) async {
+    final isValid = validateAdminCode(wedding, input);
+    if (!isValid) {
+      return false;
+    }
+
+    await _cacheAdminCodeForWedding(wedding.id, input);
+    return true;
+  }
+
+  static String _hashAdminCode(String adminCode) {
+    final bytes = utf8.encode(adminCode.trim());
+    return crypto.sha256.convert(bytes).toString();
   }
 
   static Future<Wedding?> getWeddingFromCloud(String code) async {
@@ -72,6 +152,7 @@ class StorageService {
           'partner2_name': wedding.partner2,
           'date': wedding.dateStr == 'Ej satt' ? null : wedding.dateStr,
           'time': wedding.timeStr,
+          'admin_code': wedding.adminCode,
           'ceremony_address': wedding.churchAddress,
           'party_address': wedding.venueAddress,
           'cover_image_url': wedding.coverImageUrl,
@@ -85,6 +166,11 @@ class StorageService {
   }
 
   static Future<Wedding> saveNewWeddingToList(Wedding wedding) async {
+    final adminCode = wedding.adminCode.trim().isEmpty
+        ? generateAdminCode()
+        : wedding.adminCode.trim();
+    final adminCodeHash = _hashAdminCode(adminCode);
+
     final response = await supabase
         .from('weddings')
         .insert({
@@ -93,6 +179,7 @@ class StorageService {
           'date': wedding.dateStr == 'Ej satt' ? null : wedding.dateStr,
           'time': wedding.timeStr,
           'wedding_code': wedding.code,
+          'admin_code': adminCodeHash,
           'ceremony_address': wedding.churchAddress,
           'party_address': wedding.venueAddress,
           'cover_image_url': wedding.coverImageUrl,
@@ -100,8 +187,9 @@ class StorageService {
         })
         .select()
         .single();
-
-    return Wedding.fromJson(response);
+    final createdWedding = Wedding.fromJson(response);
+    await _cacheAdminCodeForWedding(createdWedding.id, adminCode);
+    return createdWedding;
   }
 
   static Future<CoverUploadResult> uploadCoverImage(

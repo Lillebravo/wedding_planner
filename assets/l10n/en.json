@@ -42,6 +42,7 @@
   "save": "Save",
   "save_success": "Table positions saved.",
   "floor_plan_help": "Drag tables to place them in the room. Zoom with pinch or Ctrl + scroll.",
+  "floor_plan_read_only_hint": "Read-only view. You can zoom and inspect placements, but not change them.",
   "add_table": "Add table",
   "add_table_hint": "Create new table",
   "table_name": "Table name",
@@ -186,6 +187,8 @@
   "landing_partner2_line1": "Thank you for helping us make",
   "landing_partner2_line2": "this celebration even more memorable.",
   "landing_share_code_title": "Share code with guests",
+  "landing_floor_plan_title": "See your seating plan",
+  "landing_floor_plan_subtitle": "Open floor view",
   "landing_copy_code": "Copy code",
   "landing_wedding_day_title": "Our wedding day",
   "landing_time_prefix": "Time",
@@ -232,4 +235,20 @@
   ,"diet_option_milk_protein_allergy": "Milk protein allergy"
   ,"diet_option_egg_allergy": "Egg allergy"
   ,"diet_option_shellfish_allergy": "Shellfish allergy"
+  ,"admin_settings_title": "Admin access"
+  ,"admin_settings_hint": "Show or share the 6-digit admin code for trusted devices."
+  ,"show_admin_code": "Show code"
+  ,"copy_admin_code": "Copy code"
+  ,"admin_code_title": "Admin code"
+  ,"admin_code_hint": "Use this 6-digit code on another device to unlock admin mode."
+  ,"admin_code_label": "Admin code"
+  ,"admin_code_copied": "Admin code copied to clipboard."
+  ,"admin_code_not_cached": "Admin code is not available on this device yet."
+  ,"admin_unlock_title": "Unlock admin mode"
+  ,"admin_unlock_hint": "Enter the 6-digit admin code to enable admin tools on this device."
+  ,"unlock_admin_mode": "Unlock"
+  ,"admin_unlock_failed": "Wrong admin code."
+  ,"admin_unlock_success": "Admin mode enabled."
+  ,"leave_admin_mode": "Leave admin mode"
+  ,"admin_mode_disabled": "Admin mode disabled on this device."
 }
