@@ -26,7 +26,8 @@ class LandingPage extends StatefulWidget {
   State<LandingPage> createState() => _LandingPageState();
 }
 
-class _LandingPageState extends State<LandingPage> {
+class _LandingPageState extends State<LandingPage>
+    with SingleTickerProviderStateMixin {
   static const String _defaultHeroImage =
       'https://images.unsplash.com/photo-1511285560929-80b456fea0bc?auto=format&fit=crop&w=1600&q=80';
   Wedding? _wedding;
@@ -34,7 +35,7 @@ class _LandingPageState extends State<LandingPage> {
   bool _isLoading = true;
   Color _coverBackgroundColor = const Color(0xFFFCE4EC);
   bool _showHero = false;
-  int _staggerStep = -1;
+  late final AnimationController _introController;
   Timer? _countdownTimer;
 
   static const List<String> _itineraryCategoryKeys = [
@@ -80,6 +81,10 @@ class _LandingPageState extends State<LandingPage> {
   @override
   void initState() {
     super.initState();
+    _introController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2400),
+    );
     _loadWeddingData();
   }
 
@@ -101,9 +106,9 @@ class _LandingPageState extends State<LandingPage> {
       _coverBackgroundColor = bgColor;
       _isLoading = false;
       _showHero = false;
-      _staggerStep = -1;
     });
 
+    _introController.value = 0;
     _runIntroAnimation();
     _startCountdownTimer();
   }
@@ -119,6 +124,7 @@ class _LandingPageState extends State<LandingPage> {
   @override
   void dispose() {
     _countdownTimer?.cancel();
+    _introController.dispose();
     super.dispose();
   }
 
@@ -127,27 +133,26 @@ class _LandingPageState extends State<LandingPage> {
 
     // Omslagsbilden fade:ar in först, därefter domino-in för innehållet.
     setState(() => _showHero = true);
-    await Future.delayed(const Duration(milliseconds: 1000));
+    await Future.delayed(const Duration(milliseconds: 520));
     if (!mounted) return;
-
-    for (int i = 0; i < 36; i++) {
-      if (!mounted) return;
-      setState(() => _staggerStep = i);
-      await Future.delayed(const Duration(milliseconds: 115));
-    }
+    _introController.forward(from: 0);
   }
 
   Widget _buildStaggerItem({required int step, required Widget child}) {
-    final isVisible = _staggerStep >= step;
+    final start = (step * 0.05).clamp(0.0, 0.92).toDouble();
+    final end = (start + 0.26).clamp(start + 0.01, 1.0).toDouble();
+    final animation = CurvedAnimation(
+      parent: _introController,
+      curve: Interval(start, end, curve: Curves.easeOutCubic),
+    );
 
-    return AnimatedOpacity(
-      opacity: isVisible ? 1 : 0,
-      duration: const Duration(milliseconds: 940),
-      curve: Curves.easeOutQuart,
-      child: AnimatedSlide(
-        offset: isVisible ? Offset.zero : const Offset(0, 0.085),
-        duration: const Duration(milliseconds: 940),
-        curve: Curves.easeOutQuart,
+    return FadeTransition(
+      opacity: animation,
+      child: SlideTransition(
+        position: Tween<Offset>(
+          begin: const Offset(0, 0.06),
+          end: Offset.zero,
+        ).animate(animation),
         child: child,
       ),
     );
@@ -2436,10 +2441,11 @@ class _LandingPageState extends State<LandingPage> {
                   Positioned(
                     bottom: isCompact ? 12 : 16,
                     right: isCompact ? 12 : 16,
-                    child: AnimatedOpacity(
-                      opacity: _staggerStep >= 0 ? 1 : 0,
-                      duration: const Duration(milliseconds: 780),
-                      curve: Curves.easeOut,
+                    child: FadeTransition(
+                      opacity: CurvedAnimation(
+                        parent: _introController,
+                        curve: const Interval(0.06, 0.3, curve: Curves.easeOut),
+                      ),
                       child: FloatingActionButton.small(
                         backgroundColor: Colors.white,
                         foregroundColor: Colors.pink.shade500,

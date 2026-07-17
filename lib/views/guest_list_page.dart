@@ -34,10 +34,14 @@ enum GuestSortOption {
   createdOldest,
 }
 
-class _GuestListPageState extends State<GuestListPage> {
+class _GuestListPageState extends State<GuestListPage>
+    with SingleTickerProviderStateMixin {
+  static bool _hasPlayedGuestIntro = false;
+
   Wedding? _activeWedding;
   List<Guest> guests = [];
   bool _isLoading = true;
+  late final AnimationController _guestIntroController;
 
   String _searchQuery = '';
   GuestTitle? _selectedTitleFilter;
@@ -47,7 +51,18 @@ class _GuestListPageState extends State<GuestListPage> {
   @override
   void initState() {
     super.initState();
+    _guestIntroController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 3200),
+      value: _hasPlayedGuestIntro ? 1.0 : 0.0,
+    );
     _loadData();
+  }
+
+  @override
+  void dispose() {
+    _guestIntroController.dispose();
+    super.dispose();
   }
 
   void _loadData() async {
@@ -59,7 +74,45 @@ class _GuestListPageState extends State<GuestListPage> {
         guests = loadedGuests;
         _isLoading = false;
       });
+
+      if (!_hasPlayedGuestIntro && loadedGuests.isNotEmpty) {
+        _hasPlayedGuestIntro = true;
+        _startGuestStaggerAnimation(loadedGuests.length);
+      } else {
+        _guestIntroController.value = 1.0;
+      }
     }
+  }
+
+  void _startGuestStaggerAnimation(int itemCount) {
+    if (itemCount <= 0) return;
+    Future.delayed(const Duration(milliseconds: 180), () {
+      if (!mounted) return;
+      _guestIntroController.forward(from: 0);
+    });
+  }
+
+  Widget _buildGuestStaggerItem({
+    required int step,
+    required Widget child,
+  }) {
+    final start = (0.08 + (step * 0.06)).clamp(0.0, 0.9).toDouble();
+    final end = (start + 0.28).clamp(start + 0.01, 1.0).toDouble();
+    final animation = CurvedAnimation(
+      parent: _guestIntroController,
+      curve: Interval(start, end, curve: Curves.easeOutCubic),
+    );
+
+    return FadeTransition(
+      opacity: animation,
+      child: SlideTransition(
+        position: Tween<Offset>(
+          begin: const Offset(0, 0.09),
+          end: Offset.zero,
+        ).animate(animation),
+        child: child,
+      ),
+    );
   }
 
   Future<void> _syncToStorage() async {
@@ -848,7 +901,10 @@ class _GuestListPageState extends State<GuestListPage> {
                     itemCount: visibleGuests.length,
                     itemBuilder: (context, index) {
                       final guest = visibleGuests[index];
-                      return _buildGuestCard(guest, isCompact);
+                      return _buildGuestStaggerItem(
+                        step: index,
+                        child: _buildGuestCard(guest, isCompact),
+                      );
                     },
                   ),
           ),
