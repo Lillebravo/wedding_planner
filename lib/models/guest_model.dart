@@ -8,6 +8,7 @@ class Guest {
   String lastName;
   String? email;
   String? phoneNumber;
+  DateTime? createdAt;
   List<String> dietaryRestrictions;
   GuestTitle title;
   bool isLocked;
@@ -22,6 +23,7 @@ class Guest {
     required this.lastName,
     this.email,
     this.phoneNumber,
+    this.createdAt,
     List<String>? dietaryRestrictions,
     this.title = GuestTitle.none,
     this.isLocked = false,

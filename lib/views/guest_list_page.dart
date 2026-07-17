@@ -223,6 +223,7 @@ class _GuestListPageState extends State<GuestListPage> {
                                     .toString(),
                                 firstName: firstNameCtrl.text.trim(),
                                 lastName: lastNameCtrl.text.trim(),
+                                createdAt: DateTime.now().toUtc(),
                                 email: emailCtrl.text.trim().isEmpty
                                     ? null
                                     : emailCtrl.text.trim(),
@@ -323,8 +324,8 @@ class _GuestListPageState extends State<GuestListPage> {
     return 2;
   }
 
-  int _createdTimestamp(Guest guest) {
-    return int.tryParse(guest.id) ?? -1;
+  DateTime _createdTimestamp(Guest guest) {
+    return guest.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
   }
 
   bool _matchesActiveFilters(Guest guest) {

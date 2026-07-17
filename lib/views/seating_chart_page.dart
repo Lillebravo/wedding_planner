@@ -23,6 +23,13 @@ import 'table_floor_plan_page.dart';
 
 enum PlacementRuleId { friendAtTable, partnerAdjacent }
 
+enum GuestSortOption {
+  nameAscending,
+  nameDescending,
+  createdNewest,
+  createdOldest,
+}
+
 class PlacementRuleSetting {
   final PlacementRuleId id;
   final String title;
@@ -53,6 +60,7 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
   String _chartSearchQuery = '';
   GuestTitle? _chartTitleFilter;
   bool _chartOnlyDietary = false;
+  GuestSortOption _chartSort = GuestSortOption.nameAscending;
   bool _isLoadingTables = true;
   final GlobalKey _visualLayoutKey = GlobalKey();
 
@@ -91,6 +99,71 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
       default:
         return localizations.text('table_rectangle');
     }
+  }
+
+  int _hostPriority(Guest guest) {
+    if (guest.title == GuestTitle.bride) return 0;
+    if (guest.title == GuestTitle.groom) return 1;
+    return 2;
+  }
+
+  DateTime _createdTimestamp(Guest guest) {
+    return guest.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
+  }
+
+  String _sortLabel(AppLocalizationsController localizations, GuestSortOption sort) {
+    switch (sort) {
+      case GuestSortOption.nameAscending:
+        return localizations.text('sort_name_asc');
+      case GuestSortOption.nameDescending:
+        return localizations.text('sort_name_desc');
+      case GuestSortOption.createdNewest:
+        return localizations.text('sort_created_newest');
+      case GuestSortOption.createdOldest:
+        return localizations.text('sort_created_oldest');
+    }
+  }
+
+  List<Guest> _buildVisibleUnassignedGuests(List<Guest> unassignedGuests) {
+    final visibleGuests = unassignedGuests.where((g) {
+      final matchesSearch = g.fullName.toLowerCase().contains(_chartSearchQuery.toLowerCase());
+      final matchesTitle = _chartTitleFilter == null || g.title == _chartTitleFilter;
+      final matchesDietary = !_chartOnlyDietary || g.dietaryRestrictions.isNotEmpty;
+      return matchesSearch && matchesTitle && matchesDietary;
+    }).toList();
+
+    switch (_chartSort) {
+      case GuestSortOption.nameAscending:
+        visibleGuests.sort((a, b) {
+          final hostCompare = _hostPriority(a).compareTo(_hostPriority(b));
+          if (hostCompare != 0) return hostCompare;
+          return a.fullName.toLowerCase().compareTo(b.fullName.toLowerCase());
+        });
+        break;
+      case GuestSortOption.nameDescending:
+        visibleGuests.sort((a, b) {
+          final hostCompare = _hostPriority(a).compareTo(_hostPriority(b));
+          if (hostCompare != 0) return hostCompare;
+          return b.fullName.toLowerCase().compareTo(a.fullName.toLowerCase());
+        });
+        break;
+      case GuestSortOption.createdNewest:
+        visibleGuests.sort((a, b) {
+          final hostCompare = _hostPriority(a).compareTo(_hostPriority(b));
+          if (hostCompare != 0) return hostCompare;
+          return _createdTimestamp(b).compareTo(_createdTimestamp(a));
+        });
+        break;
+      case GuestSortOption.createdOldest:
+        visibleGuests.sort((a, b) {
+          final hostCompare = _hostPriority(a).compareTo(_hostPriority(b));
+          if (hostCompare != 0) return hostCompare;
+          return _createdTimestamp(a).compareTo(_createdTimestamp(b));
+        });
+        break;
+    }
+
+    return visibleGuests;
   }
 
   @override
@@ -972,6 +1045,65 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
     );
   }
 
+  Future<void> _confirmClearSeatedGuests() async {
+    final localizations = AppLocalizationsScope.of(context);
+    final hasSeatedGuests = tables.any((t) => (t['assigned'] as List<Guest>).isNotEmpty);
+
+    if (!hasSeatedGuests) return;
+
+    final shouldClear = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: DialogTitleWithClose(
+          titleText: localizations.text('seating_chart_clear_title'),
+          onClose: () => Navigator.pop(dialogContext),
+        ),
+        content: Text(localizations.text('seating_chart_clear_confirm')),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text(localizations.text('cancel')),
+          ),
+          DialogConfirmButton(
+            label: localizations.text('seating_chart_clear_action'),
+            destructive: true,
+            onPressed: () => Navigator.pop(dialogContext, true),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldClear != true) return;
+
+    setState(() {
+      for (final table in tables) {
+        final assigned = table['assigned'] as List<Guest>;
+        for (final guest in assigned) {
+          guest.tableId = null;
+          guest.seatNumber = null;
+        }
+        assigned.clear();
+      }
+    });
+
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await StorageService.saveGuests(widget.weddingId, widget.guests);
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(content: Text(localizations.text('seating_chart_clear_done'))),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.red,
+          content: Text(localizations.text('error_with_message', values: {'error': '$e'})),
+        ),
+      );
+    }
+  }
+
   Widget _buildTablesPane() {
     final localizations = AppLocalizationsScope.of(context);
     return Container(
@@ -1142,6 +1274,7 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
 
   Widget _buildUnassignedPane(List<Guest> unassignedGuests, {required bool isCompact}) {
     final localizations = AppLocalizationsScope.of(context);
+    final menuList = _buildVisibleUnassignedGuests(unassignedGuests);
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -1185,6 +1318,24 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 4.0),
+            child: AppDropdownFormField<GuestSortOption>(
+              initialValue: _chartSort,
+              labelText: localizations.text('sort_label'),
+              isExpanded: true,
+              isDense: true,
+              items: GuestSortOption.values
+                  .map(
+                    (sort) => DropdownMenuItem(
+                      value: sort,
+                      child: Text(_sortLabel(localizations, sort)),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (val) => setState(() => _chartSort = val ?? _chartSort),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 4.0),
             child: Align(
               alignment: Alignment.centerLeft,
               child: FilterChip(
@@ -1198,13 +1349,6 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
           Expanded(
             child: Builder(
               builder: (context) {
-                final menuList = unassignedGuests.where((g) {
-                  final matchesSearch = g.fullName.toLowerCase().contains(_chartSearchQuery.toLowerCase());
-                  final matchesTitle = _chartTitleFilter == null || g.title == _chartTitleFilter;
-                  final matchesDietary = !_chartOnlyDietary || g.dietaryRestrictions.isNotEmpty;
-                  return matchesSearch && matchesTitle && matchesDietary;
-                }).toList();
-
                 if (menuList.isEmpty) {
                   return Center(
                     child: Text(
@@ -1701,6 +1845,7 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
     List<Guest> unassignedGuests = widget.guests.where((g) {
       return !tables.any((t) => (t['assigned'] as List<Guest>).contains(g));
     }).toList();
+    final hasSeatedGuests = tables.any((t) => (t['assigned'] as List<Guest>).isNotEmpty);
 
     final isCompact = MediaQuery.of(context).size.width < 900;
 
@@ -1744,6 +1889,11 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
                 ),
               );
             },
+          ),
+          IconButton(
+            icon: const Icon(Icons.delete_sweep),
+            tooltip: AppLocalizationsScope.of(context).text('seating_chart_clear_seated'),
+            onPressed: hasSeatedGuests ? _confirmClearSeatedGuests : null,
           ),
           if (!isCompact)
             const SizedBox(width: 8),

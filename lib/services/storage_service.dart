@@ -483,6 +483,11 @@ class StorageService {
           .single();
       final String realUuid = response['id'] ?? '';
 
+      final createdAtValue = response['created_at'];
+      g.createdAt = createdAtValue == null
+          ? g.createdAt
+          : DateTime.tryParse(createdAtValue.toString()) ?? g.createdAt;
+
       if (g.id != realUuid) {
         idMapping[g.id] = realUuid;
         g.id = realUuid;
@@ -530,6 +535,9 @@ class StorageService {
           id: item['id'] ?? '',
           firstName: item['first_name'] ?? '',
           lastName: item['last_name'] ?? '',
+          createdAt: item['created_at'] == null
+              ? null
+              : DateTime.tryParse(item['created_at'].toString()),
           title: GuestTitle.values.firstWhere(
             (e) => e.name == item['title'],
             orElse: () => GuestTitle.none,
