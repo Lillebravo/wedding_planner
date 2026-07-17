@@ -39,8 +39,20 @@
   "floor_plan_header": "Floor plan for tables",
   "center_view": "Center view",
   "show_guests": "Show guests",
+  "floor_plan_select_hint": "Tap tables to select them, then rotate them or turn short-side placement on or off for the selected group.",
+  "floor_plan_selected_count": "{count} selected",
+  "floor_plan_select_all": "Select all",
+  "floor_plan_clear_selection": "Clear selection",
+  "floor_plan_rotate_left": "Rotate left",
+  "floor_plan_rotate_right": "Rotate right",
+  "floor_plan_short_sides": "Short sides",
+  "floor_plan_rotate_15": "15°",
+  "floor_plan_rotate_45": "45°",
+  "floor_plan_rotate_90": "90°",
   "save": "Save",
   "save_success": "Table positions saved.",
+  "empty_chair": "Empty chair",
+  "empty_chair_drag_tooltip": "Drag to a table to place",
   "floor_plan_help": "Drag tables to place them in the room. Zoom with pinch or Ctrl + scroll.",
   "floor_plan_read_only_hint": "Read-only view. You can zoom and inspect placements, but not change them.",
   "add_table": "Add table",
@@ -255,6 +267,15 @@
   ,"diet_option_milk_protein_allergy": "Milk protein allergy"
   ,"diet_option_egg_allergy": "Egg allergy"
   ,"diet_option_shellfish_allergy": "Shellfish allergy"
+  ,"diet_option_pregnant": "Pregnant"
+  ,"diet_option_mollusks": "Mollusks"
+  ,"diet_option_sesame": "Sesame oil"
+  ,"diet_option_beets": "Beets"
+  ,"diet_option_wheat": "Wheat"
+  ,"diet_option_rye": "Rye"
+  ,"diet_option_gluten": "Gluten"
+  ,"delete_empty_chair_title": "Delete empty chair?"
+  ,"delete_empty_chair_confirm": "Are you sure you want to remove this empty chair?"
   ,"admin_settings_title": "Admin access"
   ,"admin_settings_hint": "Show or share the 6-digit admin code for trusted devices."
   ,"show_admin_code": "Show code"
@@ -271,4 +292,6 @@
   ,"admin_unlock_success": "Admin mode enabled."
   ,"leave_admin_mode": "Leave admin mode"
   ,"admin_mode_disabled": "Admin mode disabled on this device."
+  ,"add_empty_chair_tooltip": "Add empty chair"
+  ,"add_empty_chair_select_table": "Select table"
 }
