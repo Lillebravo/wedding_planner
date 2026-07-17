@@ -381,7 +381,8 @@ class _TableFloorPlanPageState extends State<TableFloorPlanPage> {
     final dy = (viewportSize.height - (_canvasSize.height * targetScale)) / 2;
 
     _transformationController.value = Matrix4.identity()
-      ..scale(targetScale)
+      ..setEntry(0, 0, targetScale)
+      ..setEntry(1, 1, targetScale)
       ..setTranslationRaw(dx, dy, 0);
   }
 
@@ -677,96 +678,115 @@ class _TableFloorPlanPageState extends State<TableFloorPlanPage> {
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: const Color(0xFFE9D7DF)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final isCompact = constraints.maxWidth < 760;
+
+          final controls = <Widget>[
+            const LanguageToggleButton(),
+            TextButton.icon(
+              onPressed: _resetZoom,
+              icon: const Icon(Icons.center_focus_strong),
+              label: Text(localizations.text('center_view')),
+            ),
+            TextButton.icon(
+              onPressed: _exportFloorPlanAsPng,
+              icon: const Icon(Icons.image_outlined),
+              label: Text(localizations.text('seating_chart_export_png')),
+            ),
+            if (!widget.readOnly)
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.72),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: const Color(0xFFD8CDD0)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.people_outline, size: 18),
+                    const SizedBox(width: 6),
+                    Text(localizations.text('show_guests')),
+                    const SizedBox(width: 6),
+                    Switch.adaptive(
+                      value: _showGuests,
+                      onChanged: (value) async {
+                        setState(() {
+                          _showGuests = value;
+                        });
+                        await StorageService.saveFloorPlanShowGuests(
+                          widget.weddingId,
+                          value,
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            if (!widget.readOnly)
+              ElevatedButton.icon(
+                onPressed: _isSaving
+                    ? null
+                    : () => _persistLayout(showFeedback: true),
+                icon: _isSaving
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.save),
+                label: Text(localizations.text('save')),
+              ),
+            if (!widget.readOnly)
+              ElevatedButton.icon(
+                onPressed: () => _openTableFormDialog(),
+                icon: const Icon(Icons.add),
+                label: Text(localizations.text('add_table')),
+              ),
+          ];
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: Text(
+              if (isCompact) ...[
+                Text(
                   localizations.text('floor_plan_header'),
                   style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
                 ),
-              ),
-              const LanguageToggleButton(),
-              const SizedBox(width: 8),
-              TextButton.icon(
-                onPressed: _resetZoom,
-                icon: const Icon(Icons.center_focus_strong),
-                label: Text(localizations.text('center_view')),
-              ),
-              const SizedBox(width: 8),
-              TextButton.icon(
-                onPressed: _exportFloorPlanAsPng,
-                icon: const Icon(Icons.image_outlined),
-                label: Text(localizations.text('seating_chart_export_png')),
-              ),
-              const SizedBox(width: 8),
-              if (!widget.readOnly) ...[
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.72),
-                    borderRadius: BorderRadius.circular(999),
-                    border: Border.all(color: const Color(0xFFD8CDD0)),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.people_outline, size: 18),
-                      const SizedBox(width: 6),
-                      Text(localizations.text('show_guests')),
-                      const SizedBox(width: 6),
-                      Switch.adaptive(
-                        value: _showGuests,
-                        onChanged: (value) async {
-                          setState(() {
-                            _showGuests = value;
-                          });
-                          await StorageService.saveFloorPlanShowGuests(
-                            widget.weddingId,
-                            value,
-                          );
-                        },
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: controls,
+                ),
+              ] else ...[
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        localizations.text('floor_plan_header'),
+                        style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
                       ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-              ],
-              if (!widget.readOnly) ...[
-                ElevatedButton.icon(
-                  onPressed: _isSaving
-                      ? null
-                      : () => _persistLayout(showFeedback: true),
-                  icon: _isSaving
-                      ? const SizedBox(
-                          width: 14,
-                          height: 14,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.save),
-                  label: Text(localizations.text('save')),
-                ),
-                const SizedBox(width: 8),
-                ElevatedButton.icon(
-                  onPressed: () => _openTableFormDialog(),
-                  icon: const Icon(Icons.add),
-                  label: Text(localizations.text('add_table')),
+                    ),
+                    ...controls,
+                  ],
                 ),
               ],
+              const SizedBox(height: 10),
+              Text(
+                widget.readOnly
+                    ? localizations.text('floor_plan_read_only_hint')
+                    : localizations.text('floor_plan_help'),
+                style: TextStyle(color: Colors.grey.shade700),
+              ),
             ],
-          ),
-          const SizedBox(height: 10),
-          Text(
-            widget.readOnly
-                ? localizations.text('floor_plan_read_only_hint')
-                : localizations.text('floor_plan_help'),
-            style: TextStyle(color: Colors.grey.shade700),
-          ),
-        ],
+          );
+        },
       ),
     );
   }

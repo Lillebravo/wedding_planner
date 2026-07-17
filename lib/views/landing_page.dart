@@ -67,6 +67,15 @@ class _LandingPageState extends State<LandingPage> {
     'landing_category_farewell',
   ];
 
+  bool _isCompactWidth(double width) => width < 700;
+
+  double _pageHorizontalPadding(double width) {
+    if (width < 480) return 12;
+    if (width < 700) return 16;
+    if (width < 1200) return 24;
+    return 32;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -221,26 +230,30 @@ class _LandingPageState extends State<LandingPage> {
     };
   }
 
-  Widget _buildHeroStat(String value, String label) {
+  Widget _buildHeroStat(
+    String value,
+    String label, {
+    bool compact = false,
+  }) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
           value,
-          style: const TextStyle(
+          style: TextStyle(
             color: Colors.white,
-            fontSize: 28,
+            fontSize: compact ? 22 : 28,
             fontWeight: FontWeight.w300,
-            letterSpacing: 1.4,
+            letterSpacing: compact ? 1.1 : 1.4,
           ),
         ),
         const SizedBox(height: 6),
         Text(
           label,
-          style: const TextStyle(
+          style: TextStyle(
             color: Color(0xFFF6EAEA),
-            fontSize: 11,
-            letterSpacing: 1.8,
+            fontSize: compact ? 10 : 11,
+            letterSpacing: compact ? 1.4 : 1.8,
             fontWeight: FontWeight.w600,
           ),
         ),
@@ -277,14 +290,15 @@ class _LandingPageState extends State<LandingPage> {
   Widget _buildSectionTitle({
     required String title,
     required String subtitle,
+    bool compact = false,
   }) {
     return Column(
       children: [
         Text(
           title,
           textAlign: TextAlign.center,
-          style: const TextStyle(
-            fontSize: 42,
+          style: TextStyle(
+            fontSize: compact ? 30 : 42,
             fontWeight: FontWeight.w400,
             color: Color(0xFF24191D),
           ),
@@ -294,7 +308,7 @@ class _LandingPageState extends State<LandingPage> {
           subtitle,
           textAlign: TextAlign.center,
           style: TextStyle(
-            fontSize: 18,
+            fontSize: compact ? 16 : 18,
             color: Colors.grey.shade700,
             height: 1.4,
           ),
@@ -311,10 +325,19 @@ class _LandingPageState extends State<LandingPage> {
     required String description,
     required Color accent,
     String? imageUrl,
+    bool compact = false,
   }) {
+    final imageSize = compact ? 120.0 : 150.0;
+    final iconSize = compact ? 54.0 : 68.0;
+    final titleSize = compact ? 22.0 : 24.0;
+
     return Container(
-      width: 260,
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+      width: double.infinity,
+      constraints: BoxConstraints(maxWidth: compact ? 420 : 260),
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 18 : 20,
+        vertical: compact ? 20 : 24,
+      ),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(28),
@@ -332,14 +355,14 @@ class _LandingPageState extends State<LandingPage> {
             child: imageUrl != null && imageUrl.trim().isNotEmpty
                 ? Image.network(
                     imageUrl,
-                    width: 150,
-                    height: 150,
+                    width: imageSize,
+                    height: imageSize,
                     fit: BoxFit.cover,
                     filterQuality: FilterQuality.high,
                     errorBuilder: (context, error, stackTrace) {
                       return Container(
-                        width: 150,
-                        height: 150,
+                        width: imageSize,
+                        height: imageSize,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           gradient: LinearGradient(
@@ -348,13 +371,13 @@ class _LandingPageState extends State<LandingPage> {
                             colors: [accent.withValues(alpha: 0.18), accent],
                           ),
                         ),
-                        child: Icon(icon, size: 68, color: Colors.white),
+                        child: Icon(icon, size: iconSize, color: Colors.white),
                       );
                     },
                   )
                 : Container(
-                    width: 150,
-                    height: 150,
+                    width: imageSize,
+                    height: imageSize,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       gradient: LinearGradient(
@@ -363,15 +386,15 @@ class _LandingPageState extends State<LandingPage> {
                         colors: [accent.withValues(alpha: 0.18), accent],
                       ),
                     ),
-                    child: Icon(icon, size: 68, color: Colors.white),
+                    child: Icon(icon, size: iconSize, color: Colors.white),
                   ),
           ),
           const SizedBox(height: 20),
           Text(
             name,
             textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 24,
+            style: TextStyle(
+              fontSize: titleSize,
               fontWeight: FontWeight.w700,
               color: Color(0xFF24191D),
             ),
@@ -409,6 +432,7 @@ class _LandingPageState extends State<LandingPage> {
     required Color accent,
     VoidCallback? onTap,
     Widget? trailing,
+    bool compact = false,
   }) {
     return Material(
       color: Colors.white,
@@ -417,49 +441,101 @@ class _LandingPageState extends State<LandingPage> {
         onTap: onTap,
         borderRadius: BorderRadius.circular(20),
         child: Padding(
-          padding: const EdgeInsets.all(18),
-          child: Row(
-            children: [
-              Container(
-                width: 52,
-                height: 52,
-                decoration: BoxDecoration(
-                  color: accent.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Icon(icon, color: accent),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
+          padding: EdgeInsets.all(compact ? 16 : 18),
+          child: compact
+              ? Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF24191D),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(
+                            color: accent.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Icon(icon, color: accent),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                title,
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFF24191D),
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                subtitle,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.grey.shade700,
+                                  height: 1.45,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (trailing != null) ...[
+                      const SizedBox(height: 12),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: trailing,
+                      ),
+                    ],
+                  ],
+                )
+              : Row(
+                  children: [
+                    Container(
+                      width: 52,
+                      height: 52,
+                      decoration: BoxDecoration(
+                        color: accent.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Icon(icon, color: accent),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title,
+                            style: const TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF24191D),
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            subtitle,
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.grey.shade700,
+                              height: 1.45,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      subtitle,
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.grey.shade700,
-                        height: 1.45,
-                      ),
-                    ),
+                    if (trailing != null) ...[
+                      const SizedBox(width: 12),
+                      trailing,
+                    ],
                   ],
                 ),
-              ),
-              if (trailing != null) ...[
-                const SizedBox(width: 12),
-                trailing,
-              ],
-            ],
-          ),
         ),
       ),
     );
@@ -494,41 +570,73 @@ class _LandingPageState extends State<LandingPage> {
   Widget _buildScheduleItem(
     Map<String, dynamic> event,
     AppLocalizationsController localizations,
+    {bool compact = false}
   ) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 16 : 18,
+        vertical: compact ? 14 : 16,
+      ),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
       ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-            decoration: BoxDecoration(
-              color: Colors.pink.shade50,
-              borderRadius: BorderRadius.circular(999),
+      child: compact
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                  decoration: BoxDecoration(
+                    color: Colors.pink.shade50,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    event['time'] ?? '',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: Colors.pink.shade700,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  _itineraryEventTitle(event, localizations),
+                  style: const TextStyle(
+                    fontSize: 16,
+                    color: Color(0xFF24191D),
+                  ),
+                ),
+              ],
+            )
+          : Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                  decoration: BoxDecoration(
+                    color: Colors.pink.shade50,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    event['time'] ?? '',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: Colors.pink.shade700,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Text(
+                    _itineraryEventTitle(event, localizations),
+                    style: const TextStyle(
+                      fontSize: 16,
+                      color: Color(0xFF24191D),
+                    ),
+                  ),
+                ),
+              ],
             ),
-            child: Text(
-              event['time'] ?? '',
-              style: TextStyle(
-                fontWeight: FontWeight.w700,
-                color: Colors.pink.shade700,
-              ),
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Text(
-              _itineraryEventTitle(event, localizations),
-              style: const TextStyle(
-                fontSize: 16,
-                color: Color(0xFF24191D),
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 
@@ -740,6 +848,79 @@ class _LandingPageState extends State<LandingPage> {
         ],
       ),
     );
+  }
+
+  List<Widget> _buildAppBarActions(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isCompact = _isCompactWidth(screenWidth);
+
+    if (!isCompact) {
+      return [
+        const LanguageToggleButton(),
+        const SizedBox(width: 8),
+        IconButton(
+          icon: const Icon(Icons.settings),
+          tooltip: AppLocalizationsScope.of(context).text('landing_settings'),
+          onPressed: _openSettingsEntry,
+        ),
+        if (_isAdmin)
+          IconButton(
+            icon: const Icon(Icons.people),
+            tooltip: AppLocalizationsScope.of(context).text('landing_guest_list'),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const GuestListPage(),
+              ),
+            ),
+          ),
+        IconButton(
+          icon: const Icon(Icons.logout),
+          tooltip: AppLocalizationsScope.of(context).text('landing_logout'),
+          onPressed: _logout,
+        ),
+      ];
+    }
+
+    return [
+      const LanguageToggleButton(),
+      PopupMenuButton<String>(
+        icon: const Icon(Icons.more_vert),
+        onSelected: (value) {
+          switch (value) {
+            case 'settings':
+              _openSettingsEntry();
+              break;
+            case 'guests':
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const GuestListPage(),
+                ),
+              );
+              break;
+            case 'logout':
+              _logout();
+              break;
+          }
+        },
+        itemBuilder: (context) => [
+          PopupMenuItem<String>(
+            value: 'settings',
+            child: Text(AppLocalizationsScope.of(context).text('landing_settings')),
+          ),
+          if (_isAdmin)
+            PopupMenuItem<String>(
+              value: 'guests',
+              child: Text(AppLocalizationsScope.of(context).text('landing_guest_list')),
+            ),
+          PopupMenuItem<String>(
+            value: 'logout',
+            child: Text(AppLocalizationsScope.of(context).text('landing_logout')),
+          ),
+        ],
+      ),
+    ];
   }
 
   Future<void> _openAdminUnlockDialog() async {
@@ -2048,10 +2229,12 @@ class _LandingPageState extends State<LandingPage> {
 
     final theme = Theme.of(context);
     final screenWidth = MediaQuery.of(context).size.width;
+    final isCompact = _isCompactWidth(screenWidth);
+    final pagePadding = _pageHorizontalPadding(screenWidth);
     final expandedHeight = screenWidth < 420
-      ? 520.0
+      ? 440.0
       : screenWidth < 700
-      ? 600.0
+      ? 540.0
       : screenWidth < 1200
       ? 660.0
       : 720.0;
@@ -2068,31 +2251,7 @@ class _LandingPageState extends State<LandingPage> {
             pinned: true,
             elevation: 0,
             backgroundColor: Colors.white,
-            actions: [
-              const LanguageToggleButton(),
-              const SizedBox(width: 8),
-              IconButton(
-                icon: const Icon(Icons.settings),
-                tooltip: localizations.text('landing_settings'),
-                onPressed: _openSettingsEntry,
-              ),
-              if (_isAdmin)
-                IconButton(
-                  icon: const Icon(Icons.people),
-                  tooltip: localizations.text('landing_guest_list'),
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const GuestListPage(),
-                    ),
-                  ),
-                ),
-              IconButton(
-                icon: const Icon(Icons.logout),
-                tooltip: localizations.text('landing_logout'),
-                onPressed: _logout,
-              ),
-            ],
+            actions: _buildAppBarActions(context),
             flexibleSpace: FlexibleSpaceBar(
               background: Stack(
                 fit: StackFit.expand,
@@ -2139,14 +2298,14 @@ class _LandingPageState extends State<LandingPage> {
                   if (_wedding!.showHeroText)
                     Padding(
                       padding: EdgeInsets.fromLTRB(
-                        24,
-                        kToolbarHeight + MediaQuery.of(context).padding.top + 28,
-                        24,
-                        48,
+                        isCompact ? 16 : 24,
+                        kToolbarHeight + MediaQuery.of(context).padding.top + (isCompact ? 18 : 28),
+                        isCompact ? 16 : 24,
+                        isCompact ? 28 : 48,
                       ),
                       child: Center(
                         child: ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 860),
+                          constraints: BoxConstraints(maxWidth: isCompact ? 560 : 860),
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
@@ -2156,7 +2315,7 @@ class _LandingPageState extends State<LandingPage> {
                                   '${_wedding!.partner1} & ${_wedding!.partner2}',
                                   textAlign: TextAlign.center,
                                   style: TextStyle(
-                                    fontSize: screenWidth < 600 ? 42 : 68,
+                                    fontSize: screenWidth < 480 ? 34 : screenWidth < 600 ? 42 : 68,
                                     fontWeight: FontWeight.w400,
                                     color: Colors.white,
                                     height: 1,
@@ -2177,7 +2336,7 @@ class _LandingPageState extends State<LandingPage> {
                                   localizations.text('landing_hero_invitation_text'),
                                   textAlign: TextAlign.center,
                                   style: TextStyle(
-                                    fontSize: screenWidth < 600 ? 17 : 22,
+                                    fontSize: screenWidth < 480 ? 15 : screenWidth < 600 ? 17 : 22,
                                     color: const Color(0xFFF7EEEE),
                                     height: 1.5,
                                   ),
@@ -2219,13 +2378,13 @@ class _LandingPageState extends State<LandingPage> {
                                 step: 4,
                                 child: Wrap(
                                   alignment: WrapAlignment.center,
-                                  spacing: 30,
-                                  runSpacing: 18,
+                                  spacing: isCompact ? 14 : 30,
+                                  runSpacing: isCompact ? 12 : 18,
                                   children: [
-                                    _buildHeroStat('${countdown['days']}', localizations.text('countdown_days')),
-                                    _buildHeroStat('${countdown['hours']}', localizations.text('countdown_hours')),
-                                    _buildHeroStat('${countdown['minutes']}', localizations.text('countdown_minutes')),
-                                    _buildHeroStat('${countdown['seconds']}', localizations.text('countdown_seconds')),
+                                    _buildHeroStat('${countdown['days']}', localizations.text('countdown_days'), compact: isCompact),
+                                    _buildHeroStat('${countdown['hours']}', localizations.text('countdown_hours'), compact: isCompact),
+                                    _buildHeroStat('${countdown['minutes']}', localizations.text('countdown_minutes'), compact: isCompact),
+                                    _buildHeroStat('${countdown['seconds']}', localizations.text('countdown_seconds'), compact: isCompact),
                                   ],
                                 ),
                               ),
@@ -2235,8 +2394,8 @@ class _LandingPageState extends State<LandingPage> {
                       ),
                     ),
                   Positioned(
-                    bottom: 16,
-                    right: 16,
+                    bottom: isCompact ? 12 : 16,
+                    right: isCompact ? 12 : 16,
                     child: AnimatedOpacity(
                       opacity: _staggerStep >= 0 ? 1 : 0,
                       duration: const Duration(milliseconds: 780),
@@ -2257,36 +2416,64 @@ class _LandingPageState extends State<LandingPage> {
           SliverList(
             delegate: SliverChildListDelegate([
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 24, 16, 40),
+                padding: EdgeInsets.fromLTRB(pagePadding, 24, pagePadding, 40),
                 child: Builder(
                   builder: (context) {
-                    final coupleCards = Wrap(
-                      alignment: WrapAlignment.center,
-                      spacing: 28,
-                      runSpacing: 28,
-                      children: [
-                        _buildCoupleCard(
-                          name: _wedding!.partner1,
-                          icon: Icons.local_florist,
-                          accent: const Color(0xFFE4A7B6),
-                          description: _partnerDescription(
-                            isPartner1: true,
-                            localizations: localizations,
-                          ),
-                          imageUrl: _wedding!.partner1ImageUrl,
-                        ),
-                        _buildCoupleCard(
-                          name: _wedding!.partner2,
-                          icon: Icons.favorite,
-                          accent: const Color(0xFFD6A35D),
-                          description: _partnerDescription(
-                            isPartner1: false,
-                            localizations: localizations,
-                          ),
-                          imageUrl: _wedding!.partner2ImageUrl,
-                        ),
-                      ],
-                    );
+                    final coupleCards = isCompact
+                        ? Column(
+                            children: [
+                              _buildCoupleCard(
+                                name: _wedding!.partner1,
+                                icon: Icons.local_florist,
+                                accent: const Color(0xFFE4A7B6),
+                                description: _partnerDescription(
+                                  isPartner1: true,
+                                  localizations: localizations,
+                                ),
+                                imageUrl: _wedding!.partner1ImageUrl,
+                                compact: true,
+                              ),
+                              const SizedBox(height: 16),
+                              _buildCoupleCard(
+                                name: _wedding!.partner2,
+                                icon: Icons.favorite,
+                                accent: const Color(0xFFD6A35D),
+                                description: _partnerDescription(
+                                  isPartner1: false,
+                                  localizations: localizations,
+                                ),
+                                imageUrl: _wedding!.partner2ImageUrl,
+                                compact: true,
+                              ),
+                            ],
+                          )
+                        : Wrap(
+                            alignment: WrapAlignment.center,
+                            spacing: 28,
+                            runSpacing: 28,
+                            children: [
+                              _buildCoupleCard(
+                                name: _wedding!.partner1,
+                                icon: Icons.local_florist,
+                                accent: const Color(0xFFE4A7B6),
+                                description: _partnerDescription(
+                                  isPartner1: true,
+                                  localizations: localizations,
+                                ),
+                                imageUrl: _wedding!.partner1ImageUrl,
+                              ),
+                              _buildCoupleCard(
+                                name: _wedding!.partner2,
+                                icon: Icons.favorite,
+                                accent: const Color(0xFFD6A35D),
+                                description: _partnerDescription(
+                                  isPartner1: false,
+                                  localizations: localizations,
+                                ),
+                                imageUrl: _wedding!.partner2ImageUrl,
+                              ),
+                            ],
+                          );
 
                     final detailTiles = <Widget>[
                       if (_isAdmin)
@@ -2295,6 +2482,7 @@ class _LandingPageState extends State<LandingPage> {
                           title: localizations.text('landing_share_code_title'),
                           subtitle: _wedding!.code,
                           accent: Colors.pink.shade400,
+                          compact: isCompact,
                           trailing: IconButton.filledTonal(
                             icon: const Icon(Icons.copy),
                             tooltip: localizations.text('landing_copy_code'),
@@ -2307,6 +2495,7 @@ class _LandingPageState extends State<LandingPage> {
                         subtitle:
                             '${_wedding!.dateStr}\n${localizations.text('landing_time_prefix')}: ${_wedding!.timeStr}',
                         accent: Colors.pink.shade400,
+                          compact: isCompact,
                       ),
                       _buildInfoTile(
                         icon: Icons.grid_view_rounded,
@@ -2321,6 +2510,7 @@ class _LandingPageState extends State<LandingPage> {
                           fallbackKey: 'seating_chart_open_floor_plan',
                         ),
                         accent: Colors.teal.shade400,
+                          compact: isCompact,
                         trailing: const Icon(
                           Icons.open_in_new,
                           color: Colors.grey,
@@ -2344,6 +2534,7 @@ class _LandingPageState extends State<LandingPage> {
                           title: localizations.text('landing_ceremony_title'),
                           subtitle: _wedding!.churchAddress,
                           accent: Colors.blue.shade400,
+                          compact: isCompact,
                           trailing: const Icon(
                             Icons.open_in_new,
                             color: Colors.grey,
@@ -2360,6 +2551,7 @@ class _LandingPageState extends State<LandingPage> {
                           title: localizations.text('landing_reception_title'),
                           subtitle: _wedding!.venueAddress,
                           accent: Colors.orange.shade400,
+                          compact: isCompact,
                           trailing: const Icon(
                             Icons.open_in_new,
                             color: Colors.grey,
@@ -2376,6 +2568,7 @@ class _LandingPageState extends State<LandingPage> {
                         _buildSectionTitle(
                           title: localizations.text('landing_meet_couple_title'),
                           subtitle: localizations.text('landing_meet_couple_subtitle'),
+                          compact: isCompact,
                         ),
                         const SizedBox(height: 18),
                         coupleCards,
@@ -2387,9 +2580,9 @@ class _LandingPageState extends State<LandingPage> {
                       sectionWidgets.add(
                         Container(
                         width: double.infinity,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 22,
-                          vertical: 28,
+                        padding: EdgeInsets.symmetric(
+                          horizontal: isCompact ? 18 : 22,
+                          vertical: isCompact ? 22 : 28,
                         ),
                         decoration: BoxDecoration(
                           color: const Color(0xFFEEC6D3),
@@ -2410,6 +2603,7 @@ class _LandingPageState extends State<LandingPage> {
                               style: theme.textTheme.headlineMedium?.copyWith(
                                 color: Colors.white,
                                 fontWeight: FontWeight.w400,
+                                fontSize: isCompact ? 22 : null,
                               ),
                             ),
                             const SizedBox(height: 10),
@@ -2425,12 +2619,12 @@ class _LandingPageState extends State<LandingPage> {
                             _buildConfettiDivider(color: Colors.white70),
                             const SizedBox(height: 24),
                             Wrap(
-                              spacing: 14,
-                              runSpacing: 14,
+                              spacing: isCompact ? 10 : 14,
+                              runSpacing: isCompact ? 10 : 14,
                               children: [
                                 Container(
-                                  width: 96,
-                                  height: 96,
+                                  width: isCompact ? 84 : 96,
+                                  height: isCompact ? 84 : 96,
                                   decoration: BoxDecoration(
                                     shape: BoxShape.circle,
                                     border: Border.all(
@@ -2442,12 +2636,13 @@ class _LandingPageState extends State<LandingPage> {
                                     child: _buildHeroStat(
                                       '${countdown['days']}',
                                       localizations.text('countdown_days'),
+                                      compact: isCompact,
                                     ),
                                   ),
                                 ),
                                 Container(
-                                  width: 96,
-                                  height: 96,
+                                  width: isCompact ? 84 : 96,
+                                  height: isCompact ? 84 : 96,
                                   decoration: BoxDecoration(
                                     shape: BoxShape.circle,
                                     border: Border.all(
@@ -2459,12 +2654,13 @@ class _LandingPageState extends State<LandingPage> {
                                     child: _buildHeroStat(
                                       '${countdown['hours']}',
                                       localizations.text('countdown_hours'),
+                                      compact: isCompact,
                                     ),
                                   ),
                                 ),
                                 Container(
-                                  width: 96,
-                                  height: 96,
+                                  width: isCompact ? 84 : 96,
+                                  height: isCompact ? 84 : 96,
                                   decoration: BoxDecoration(
                                     shape: BoxShape.circle,
                                     border: Border.all(
@@ -2476,12 +2672,13 @@ class _LandingPageState extends State<LandingPage> {
                                     child: _buildHeroStat(
                                       '${countdown['minutes']}',
                                       localizations.text('countdown_minutes'),
+                                      compact: isCompact,
                                     ),
                                   ),
                                 ),
                                 Container(
-                                  width: 96,
-                                  height: 96,
+                                  width: isCompact ? 84 : 96,
+                                  height: isCompact ? 84 : 96,
                                   decoration: BoxDecoration(
                                     shape: BoxShape.circle,
                                     border: Border.all(
@@ -2493,6 +2690,7 @@ class _LandingPageState extends State<LandingPage> {
                                     child: _buildHeroStat(
                                       '${countdown['seconds']}',
                                       localizations.text('countdown_seconds'),
+                                      compact: isCompact,
                                     ),
                                   ),
                                 ),
