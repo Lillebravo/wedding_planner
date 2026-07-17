@@ -1089,6 +1089,24 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
     setState(() {
       _isLoadingTables = true;
     });
+
+    // Reload guest seat assignments from DB so that any moves or empty chairs
+    // added in the floor plan are reflected when we re-build the tables pane.
+    final freshGuests = await StorageService.getGuests(widget.weddingId);
+    for (final fresh in freshGuests) {
+      final idx = widget.guests.indexWhere((g) => g.id == fresh.id);
+      if (idx >= 0) {
+        final existing = widget.guests[idx];
+        existing.tableId = fresh.tableId;
+        existing.seatNumber = fresh.seatNumber;
+        existing.isLocked = fresh.isLocked;
+        existing.isPlaceholder = fresh.isPlaceholder;
+      } else {
+        // New guest created in the floor plan (e.g. an empty chair).
+        widget.guests.add(fresh);
+      }
+    }
+
     await _loadTables();
   }
 
@@ -1465,6 +1483,14 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
     return counts;
   }
 
+  List<int> _twoSideSeatDistribution(int seatCount) {
+    if (seatCount <= 0) return const [0, 0, 0, 0];
+
+    final frontCount = (seatCount / 2).ceil();
+    final backCount = seatCount - frontCount;
+    return [frontCount, 0, backCount, 0];
+  }
+
   List<double> _centeredSideOffsets(int count, double availableLength) {
     if (count <= 1) return const [0.0];
 
@@ -1488,6 +1514,7 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
     required int seatIndex,
     required int seatCount,
     required double seatRadius,
+    required bool shortSidePlacementEnabled,
   }) {
     if (seatCount <= 0) return tableCenter;
 
@@ -1504,8 +1531,9 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
       );
     }
 
-    // För kantiga bord fördelas platserna efter sidornas längd så att långsidor får fler platser.
-    final seatsPerSide = _rectangularSeatDistribution(seatCount, tableSize);
+    final seatsPerSide = shortSidePlacementEnabled
+      ? _rectangularSeatDistribution(seatCount, tableSize)
+      : _twoSideSeatDistribution(seatCount);
 
     final halfWidth = tableSize.width / 2;
     final halfHeight = tableSize.height / 2;
@@ -1562,6 +1590,10 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
       tableCenter.dy + halfHeight - sideVerticalInset,
     );
     return Offset(tableCenter.dx - halfWidth - sideOffset, y);
+  }
+
+  bool _usesShortSidePlacement(Map<String, dynamic> table) {
+    return table['short_side_placement_enabled'] != false;
   }
 
   Widget _buildVisualTableCard(Map<String, dynamic> table) {
@@ -1671,6 +1703,7 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
                         seatIndex: index,
                         seatCount: math.max(seatCapacity, 1),
                         seatRadius: seatRadius,
+                        shortSidePlacementEnabled: _usesShortSidePlacement(table),
                       );
 
                       final seatVector = seatCenter - center;

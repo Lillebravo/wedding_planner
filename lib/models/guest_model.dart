@@ -12,6 +12,7 @@ class Guest {
   List<String> dietaryRestrictions;
   GuestTitle title;
   bool isLocked;
+  bool isPlaceholder;
   String? tableId;
   int? seatNumber;
   
@@ -27,6 +28,7 @@ class Guest {
     List<String>? dietaryRestrictions,
     this.title = GuestTitle.none,
     this.isLocked = false,
+    this.isPlaceholder = false,
     this.tableId,
     this.seatNumber,
     Map<String, RelationType>? relations,
@@ -34,4 +36,6 @@ class Guest {
         relations = relations ?? {};
 
   String get fullName => '$firstName $lastName';
+
+  String get displayName => isPlaceholder ? 'Empty chair' : fullName;
 }

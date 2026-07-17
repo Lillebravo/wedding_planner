@@ -364,6 +364,8 @@ class StorageService {
           'shape': 'Rektangel',
           'position_x': null,
           'position_y': null,
+          'rotation_degrees': 0,
+          'short_side_placement_enabled': true,
         })
         .select()
         .single();
@@ -375,6 +377,10 @@ class StorageService {
     String name,
     int seats,
     String shape,
+    {
+    int rotationDegrees = 0,
+    bool shortSidePlacementEnabled = true,
+  }
   ) async {
     final response = await supabase
         .from('tables')
@@ -385,6 +391,8 @@ class StorageService {
           'shape': shape,
           'position_x': null,
           'position_y': null,
+          'rotation_degrees': rotationDegrees,
+          'short_side_placement_enabled': shortSidePlacementEnabled,
         })
         .select('id')
         .single();
@@ -397,6 +405,10 @@ class StorageService {
     String name,
     int seats,
     String shape,
+    {
+    int? rotationDegrees,
+    bool? shortSidePlacementEnabled,
+  }
   ) async {
     final normalizedTableId = _normalizeUuidOrNull(tableId);
     if (normalizedTableId == null) {
@@ -404,10 +416,48 @@ class StorageService {
       return;
     }
 
+    final payload = <String, dynamic>{
+      'name': name,
+      'seats': seats,
+      'shape': shape,
+    };
+    if (rotationDegrees != null) {
+      payload['rotation_degrees'] = rotationDegrees;
+    }
+    if (shortSidePlacementEnabled != null) {
+      payload['short_side_placement_enabled'] = shortSidePlacementEnabled;
+    }
+
     await supabase
       .from('tables')
-      .update({'name': name, 'seats': seats, 'shape': shape})
+      .update(payload)
         .eq('id', normalizedTableId);
+  }
+
+  static Future<void> updateTableFloorPlanSettings(
+    String tableId, {
+    int? rotationDegrees,
+    bool? shortSidePlacementEnabled,
+  }) async {
+    final normalizedTableId = _normalizeUuidOrNull(tableId);
+    if (normalizedTableId == null) {
+      debugPrint('Skipping updateTableFloorPlanSettings for non-UUID id: $tableId');
+      return;
+    }
+
+    final payload = <String, dynamic>{};
+    if (rotationDegrees != null) {
+      payload['rotation_degrees'] = rotationDegrees;
+    }
+    if (shortSidePlacementEnabled != null) {
+      payload['short_side_placement_enabled'] = shortSidePlacementEnabled;
+    }
+
+    if (payload.isEmpty) {
+      return;
+    }
+
+    await supabase.from('tables').update(payload).eq('id', normalizedTableId);
   }
 
   static Future<void> deleteTable(String tableId) async {
@@ -428,7 +478,7 @@ class StorageService {
   static Future<List<Map<String, dynamic>>> getTables(String weddingId) async {
     final response = await supabase
         .from('tables')
-      .select('id, name, seats, shape, position_x, position_y')
+      .select('id, name, seats, shape, position_x, position_y, rotation_degrees, short_side_placement_enabled')
         .eq('wedding_id', weddingId)
         .order('created_at', ascending: true);
 
@@ -441,6 +491,8 @@ class StorageService {
             'shape': (item['shape'] ?? 'Rektangel').toString(),
             'position_x': item['position_x'],
             'position_y': item['position_y'],
+            'rotation_degrees': item['rotation_degrees'] ?? 0,
+            'short_side_placement_enabled': item['short_side_placement_enabled'] ?? true,
           },
         )
         .toList();
@@ -458,10 +510,9 @@ class StorageService {
 
     // 1. Spara gästerna och få tillbaka riktiga UUIDs
     for (var g in guests) {
-      final isTempId =
-          g.id.startsWith('bride-') ||
-          g.id.startsWith('groom-') ||
-          !g.id.contains('-');
+      // Treat any non-UUID id as temporary (bride-, groom-, empty-chair-,
+      // millisecond timestamps, etc.) and let Supabase assign a real UUID.
+      final isTempId = !_uuidPattern.hasMatch(g.id);
       final normalizedTableId = _normalizeUuidOrNull(g.tableId);
 
       final data = {
@@ -470,6 +521,7 @@ class StorageService {
         'last_name': g.lastName,
         'title': g.title.name,
         'is_locked': g.isLocked,
+          'is_placeholder': g.isPlaceholder,
         'table_id': normalizedTableId,
         'seat_number': g.seatNumber,
         'phone': g.phoneNumber,
@@ -567,6 +619,7 @@ class StorageService {
             orElse: () => GuestTitle.none,
           ),
           isLocked: item['is_locked'] ?? false,
+          isPlaceholder: item['is_placeholder'] ?? false,
           tableId: item['table_id'],
           seatNumber: item['seat_number'],
           phoneNumber: item['phone'],
@@ -596,7 +649,9 @@ class StorageService {
 
   static Future<String> exportWeddingToClipboard(String weddingId) async {
     final wedding = await getActiveWedding();
-    final guests = await getGuests(weddingId);
+    final guests = (await getGuests(weddingId))
+      .where((guest) => !guest.isPlaceholder)
+      .toList();
 
     final data = {
       'wedding': wedding?.toJson(),
@@ -608,6 +663,7 @@ class StorageService {
               'last_name': g.lastName,
               'title': g.title.name,
               'is_locked': g.isLocked,
+              'is_placeholder': g.isPlaceholder,
               'table_id': g.tableId,
               'seat_number': g.seatNumber,
               'phone': g.phoneNumber,

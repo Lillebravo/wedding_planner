@@ -385,6 +385,10 @@ class _GuestListPageState extends State<GuestListPage>
   }
 
   bool _matchesActiveFilters(Guest guest) {
+    if (guest.isPlaceholder) {
+      return false;
+    }
+
     final matchesSearch = guest.fullName.toLowerCase().contains(
       _searchQuery.toLowerCase(),
     );
@@ -687,14 +691,14 @@ class _GuestListPageState extends State<GuestListPage>
 
     final localizations = AppLocalizationsScope.of(context);
     final isCompact = MediaQuery.of(context).size.width < 700;
+    final visibleGuests = _buildVisibleGuests();
 
-    final hostCount = guests
+    final hostCount = visibleGuests
         .where(
           (g) => g.title == GuestTitle.bride || g.title == GuestTitle.groom,
         )
         .length;
-    final guestCount = guests.length - hostCount;
-    final visibleGuests = _buildVisibleGuests();
+    final guestCount = visibleGuests.length - hostCount;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF9F4F6),
@@ -723,7 +727,7 @@ class _GuestListPageState extends State<GuestListPage>
                   context,
                   MaterialPageRoute(
                     builder: (context) => SeatingChartPage(
-                      guests: guests,
+                      guests: List<Guest>.from(guests),
                       weddingId: _activeWedding!.id, // ✅ Skicka med ID:t här!
                     ),
                   ),
