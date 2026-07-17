@@ -209,6 +209,18 @@ class _LandingPageState extends State<LandingPage> {
     return fallbackText == fallbackKey ? text : fallbackText;
   }
 
+  String _heroTextVisibilityLabel(AppLocalizationsController localizations) {
+    final text = localizations.text('landing_widget_hero_text');
+    if (text != 'landing_widget_hero_text') {
+      return text;
+    }
+
+    return switch (localizations.language) {
+      AppLanguage.swedish => 'Text i hero-bilden',
+      AppLanguage.english => 'Hero text overlay',
+    };
+  }
+
   Widget _buildHeroStat(String value, String label) {
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -534,6 +546,7 @@ class _LandingPageState extends State<LandingPage> {
     bool? showCountdown,
     bool? showDetails,
     bool? showItinerary,
+    bool? showHeroText,
     String? partner1Description,
     String? partner2Description,
     String? partner1ImageUrl,
@@ -559,6 +572,7 @@ class _LandingPageState extends State<LandingPage> {
       showCountdown: showCountdown ?? _wedding!.showCountdown,
       showDetails: showDetails ?? _wedding!.showDetails,
       showItinerary: showItinerary ?? _wedding!.showItinerary,
+      showHeroText: showHeroText ?? _wedding!.showHeroText,
       partner1Description: partner1Description ?? _wedding!.partner1Description,
       partner2Description: partner2Description ?? _wedding!.partner2Description,
       partner1ImageUrl: clearPartner1Image
@@ -1210,6 +1224,7 @@ class _LandingPageState extends State<LandingPage> {
     var showCountdown = _wedding!.showCountdown;
     var showDetails = _wedding!.showDetails;
     var showItinerary = _wedding!.showItinerary;
+    var showHeroText = _wedding!.showHeroText;
 
     await showDialog<void>(
       context: context,
@@ -1224,6 +1239,11 @@ class _LandingPageState extends State<LandingPage> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                SwitchListTile.adaptive(
+                  value: showHeroText,
+                  title: Text(_heroTextVisibilityLabel(localizations)),
+                  onChanged: (value) => setDialogState(() => showHeroText = value),
+                ),
                 SwitchListTile.adaptive(
                   value: showMeetCouple,
                   title: Text(localizations.text('landing_widget_meet_couple')),
@@ -1260,6 +1280,7 @@ class _LandingPageState extends State<LandingPage> {
                     showCountdown: showCountdown,
                     showDetails: showDetails,
                     showItinerary: showItinerary,
+                    showHeroText: showHeroText,
                   );
                   await _saveWeddingAndRefresh(updatedWedding);
                   if (!mounted) return;
@@ -2115,103 +2136,104 @@ class _LandingPageState extends State<LandingPage> {
                       ),
                     ),
                   ),
-                  Padding(
-                    padding: EdgeInsets.fromLTRB(
-                      24,
-                      kToolbarHeight + MediaQuery.of(context).padding.top + 28,
-                      24,
-                      48,
-                    ),
-                    child: Center(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 860),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            _buildStaggerItem(
-                              step: 0,
-                              child: Text(
-                                '${_wedding!.partner1} & ${_wedding!.partner2}',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  fontSize: screenWidth < 600 ? 42 : 68,
-                                  fontWeight: FontWeight.w400,
-                                  color: Colors.white,
-                                  height: 1,
-                                  shadows: const [
-                                    Shadow(
-                                      color: Colors.black38,
-                                      blurRadius: 18,
-                                      offset: Offset(0, 4),
+                  if (_wedding!.showHeroText)
+                    Padding(
+                      padding: EdgeInsets.fromLTRB(
+                        24,
+                        kToolbarHeight + MediaQuery.of(context).padding.top + 28,
+                        24,
+                        48,
+                      ),
+                      child: Center(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 860),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              _buildStaggerItem(
+                                step: 0,
+                                child: Text(
+                                  '${_wedding!.partner1} & ${_wedding!.partner2}',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontSize: screenWidth < 600 ? 42 : 68,
+                                    fontWeight: FontWeight.w400,
+                                    color: Colors.white,
+                                    height: 1,
+                                    shadows: const [
+                                      Shadow(
+                                        color: Colors.black38,
+                                        blurRadius: 18,
+                                        offset: Offset(0, 4),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 18),
+                              _buildStaggerItem(
+                                step: 1,
+                                child: Text(
+                                  localizations.text('landing_hero_invitation_text'),
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontSize: screenWidth < 600 ? 17 : 22,
+                                    color: const Color(0xFFF7EEEE),
+                                    height: 1.5,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 20),
+                              _buildStaggerItem(
+                                step: 2,
+                                child: _buildConfettiDivider(color: Colors.white70),
+                              ),
+                              const SizedBox(height: 24),
+                              _buildStaggerItem(
+                                step: 3,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 22,
+                                    vertical: 10,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withValues(alpha: 0.16),
+                                    borderRadius: BorderRadius.circular(999),
+                                    border: Border.all(
+                                      color: Colors.white.withValues(alpha: 0.28),
                                     ),
+                                  ),
+                                  child: Text(
+                                    '${_wedding!.dateStr} ${_isNotSetValue(_wedding!.timeStr) ? '' : '• ${_wedding!.timeStr}'}'
+                                        .trim(),
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 34),
+                              _buildStaggerItem(
+                                step: 4,
+                                child: Wrap(
+                                  alignment: WrapAlignment.center,
+                                  spacing: 30,
+                                  runSpacing: 18,
+                                  children: [
+                                    _buildHeroStat('${countdown['days']}', localizations.text('countdown_days')),
+                                    _buildHeroStat('${countdown['hours']}', localizations.text('countdown_hours')),
+                                    _buildHeroStat('${countdown['minutes']}', localizations.text('countdown_minutes')),
+                                    _buildHeroStat('${countdown['seconds']}', localizations.text('countdown_seconds')),
                                   ],
                                 ),
                               ),
-                            ),
-                            const SizedBox(height: 18),
-                            _buildStaggerItem(
-                              step: 1,
-                              child: Text(
-                                localizations.text('landing_hero_invitation_text'),
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  fontSize: screenWidth < 600 ? 17 : 22,
-                                  color: const Color(0xFFF7EEEE),
-                                  height: 1.5,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 20),
-                            _buildStaggerItem(
-                              step: 2,
-                              child: _buildConfettiDivider(color: Colors.white70),
-                            ),
-                            const SizedBox(height: 24),
-                            _buildStaggerItem(
-                              step: 3,
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 22,
-                                  vertical: 10,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withValues(alpha: 0.16),
-                                  borderRadius: BorderRadius.circular(999),
-                                  border: Border.all(
-                                    color: Colors.white.withValues(alpha: 0.28),
-                                  ),
-                                ),
-                                child: Text(
-                                  '${_wedding!.dateStr} ${_isNotSetValue(_wedding!.timeStr) ? '' : '• ${_wedding!.timeStr}'}'
-                                      .trim(),
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 34),
-                            _buildStaggerItem(
-                              step: 4,
-                              child: Wrap(
-                                alignment: WrapAlignment.center,
-                                spacing: 30,
-                                runSpacing: 18,
-                                children: [
-                                  _buildHeroStat('${countdown['days']}', localizations.text('countdown_days')),
-                                  _buildHeroStat('${countdown['hours']}', localizations.text('countdown_hours')),
-                                  _buildHeroStat('${countdown['minutes']}', localizations.text('countdown_minutes')),
-                                  _buildHeroStat('${countdown['seconds']}', localizations.text('countdown_seconds')),
-                                ],
-                              ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
                     ),
-                  ),
                   Positioned(
                     bottom: 16,
                     right: 16,

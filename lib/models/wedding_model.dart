@@ -14,6 +14,7 @@ class Wedding {
   final bool showCountdown;
   final bool showDetails;
   final bool showItinerary;
+  final bool showHeroText;
   final String partner1Description;
   final String partner2Description;
   final String? partner1ImageUrl;
@@ -35,6 +36,7 @@ class Wedding {
     this.showCountdown = true,
     this.showDetails = true,
     this.showItinerary = true,
+    this.showHeroText = true,
     this.partner1Description = '',
     this.partner2Description = '',
     this.partner1ImageUrl,
@@ -57,6 +59,7 @@ class Wedding {
     'show_countdown': showCountdown,
     'show_details': showDetails,
     'show_itinerary': showItinerary,
+    'show_hero_text': showHeroText,
     'partner1_description': partner1Description,
     'partner2_description': partner2Description,
     'partner1_image_url': partner1ImageUrl,
@@ -81,6 +84,7 @@ class Wedding {
     showCountdown: json['show_countdown'] ?? true,
     showDetails: json['show_details'] ?? true,
     showItinerary: json['show_itinerary'] ?? true,
+    showHeroText: json['show_hero_text'] ?? true,
     partner1Description: (json['partner1_description'] ?? '').toString(),
     partner2Description: (json['partner2_description'] ?? '').toString(),
     partner1ImageUrl: json['partner1_image_url'],
