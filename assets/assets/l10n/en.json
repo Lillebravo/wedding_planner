@@ -222,7 +222,12 @@
   "seating_chart_unassigned_people": "Unassigned people",
   "seating_chart_visual_title": "Visual seating chart",
   "seating_chart_visual_description": "This is an overview. Open floor plan to spread out tables and adjust their positions.",
-  "seating_chart_open_floor_plan": "Open floor plan"
+  "seating_chart_open_floor_plan": "Open floor plan",
+  "seating_chart_clear_seated": "Clear seated guests",
+  "seating_chart_clear_title": "Clear all seated guests?",
+  "seating_chart_clear_confirm": "This will remove all guests from all tables. The guest list remains unchanged.",
+  "seating_chart_clear_action": "Clear seating",
+  "seating_chart_clear_done": "All table assignments were cleared."
 
   ,"preset_custom_hint": "Choose preset values or add your own"
   ,"add_custom_value": "Add custom value"
