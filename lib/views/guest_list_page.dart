@@ -930,78 +930,227 @@ class _GuestListPageState extends State<GuestListPage>
 
   void _manageRelationsDialog(Guest currentGuest) {
     final localizations = AppLocalizationsScope.of(context);
+
+    String dialogSearch = '';
+    GuestSortOption dialogSort = GuestSortOption.nameAscending;
+    GuestTitle? dialogTitleFilter;
+    bool dialogFilterOnlyDiet = false;
+
     showDialog(
       context: context,
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            final otherGuests = guests
-                .where((g) => g.id != currentGuest.id)
+            var otherGuests = guests
+                .where((g) => g.id != currentGuest.id && !g.isPlaceholder)
+                .where((g) => g.fullName
+                    .toLowerCase()
+                    .contains(dialogSearch.toLowerCase()))
+                .where((g) =>
+                    dialogTitleFilter == null ||
+                    g.title == dialogTitleFilter)
+                .where((g) =>
+                    !dialogFilterOnlyDiet ||
+                    g.dietaryRestrictions.isNotEmpty)
                 .toList();
+
+            otherGuests.sort((a, b) {
+              switch (dialogSort) {
+                case GuestSortOption.nameAscending:
+                  return a.fullName
+                      .toLowerCase()
+                      .compareTo(b.fullName.toLowerCase());
+                case GuestSortOption.nameDescending:
+                  return b.fullName
+                      .toLowerCase()
+                      .compareTo(a.fullName.toLowerCase());
+                case GuestSortOption.createdNewest:
+                  final aTs = a.createdAt ??
+                      DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
+                  final bTs = b.createdAt ??
+                      DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
+                  return bTs.compareTo(aTs);
+                case GuestSortOption.createdOldest:
+                  final aTs = a.createdAt ??
+                      DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
+                  final bTs = b.createdAt ??
+                      DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
+                  return aTs.compareTo(bTs);
+              }
+            });
+
             return AlertDialog(
               title: DialogTitleWithClose(
-                titleText: localizations.text('who_knows', values: {'name': currentGuest.firstName}),
+                titleText: localizations.text(
+                    'who_knows',
+                    values: {'name': currentGuest.firstName}),
                 onClose: () => Navigator.pop(context),
               ),
               content: SizedBox(
                 width: double.maxFinite,
-                height: 300,
-                child: otherGuests.isEmpty
-                    ? Center(child: Text(localizations.text('empty_list')))
-                    : ListView.builder(
-                        itemCount: otherGuests.length,
-                        itemBuilder: (context, i) {
-                          final other = otherGuests[i];
-                          final currentRelationType =
-                              currentGuest.relations[other.id];
-
-                          return ListTile(
-                            title: Text(other.fullName),
-                            trailing: DropdownButton<RelationType>(
-                              hint: Text(localizations.text('choose_relation')),
-                              value: currentRelationType,
-                              items: RelationType.values.map((type) {
-                                String label = type.name;
-                                if (type == RelationType.none) {
-                                  label = localizations.text('relation_none_label');
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 520),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      AppSearchField(
+                        hintText: localizations.text('search_placeholder'),
+                        filled: true,
+                        fillColor: const Color(0xFFF7F3F4),
+                        onChanged: (val) =>
+                            setDialogState(() => dialogSearch = val),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: AppDropdownFormField<GuestSortOption>(
+                              initialValue: dialogSort,
+                              labelText:
+                                  localizations.text('sort_label'),
+                              isExpanded: true,
+                              isDense: true,
+                              items: GuestSortOption.values
+                                  .map((sort) => DropdownMenuItem(
+                                        value: sort,
+                                        child: Text(_sortLabel(sort)),
+                                      ))
+                                  .toList(),
+                              onChanged: (value) {
+                                if (value != null) {
+                                  setDialogState(() => dialogSort = value);
                                 }
-                                if (type == RelationType.partner) {
-                                  label = localizations.text('relation_partner_label');
-                                }
-                                if (type == RelationType.friend) {
-                                  label = localizations.text('relation_friend_label');
-                                }
-                                if (type == RelationType.avoid) {
-                                  label = localizations.text('relation_avoid_label');
-                                }
-
-                                return DropdownMenuItem(
-                                  value: type,
-                                  child: Text(label),
-                                );
-                              }).toList(),
-                              onChanged: (type) {
-                                setState(() {
-                                  setDialogState(() {
-                                    if (type != null) {
-                                      if (type == RelationType.none) {
-                                        // Om man väljer "Ingen relation", ta bort nycklarna helt ur minnet
-                                        currentGuest.relations.remove(other.id);
-                                        other.relations.remove(currentGuest.id);
-                                      } else {
-                                        // Annars sparar vi den valda relationen
-                                        currentGuest.relations[other.id] = type;
-                                        other.relations[currentGuest.id] = type;
-                                      }
-                                    }
-                                  });
-                                });
-                                _syncToStorage();
                               },
                             ),
-                          );
-                        },
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: AppDropdownFormField<GuestTitle?>(
+                              initialValue: dialogTitleFilter,
+                              labelText: localizations
+                                  .text('filter_role_label'),
+                              isExpanded: true,
+                              isDense: true,
+                              items: [
+                                DropdownMenuItem<GuestTitle?>(
+                                  value: null,
+                                  child: Text(
+                                      localizations.text('all_roles')),
+                                ),
+                                ...GuestTitle.values.map(
+                                  (title) => DropdownMenuItem<GuestTitle?>(
+                                    value: title,
+                                    child: Text(
+                                        localizations.guestTitle(title)),
+                                  ),
+                                ),
+                              ],
+                              onChanged: (value) => setDialogState(
+                                  () => dialogTitleFilter = value),
+                            ),
+                          ),
+                        ],
                       ),
+                      const SizedBox(height: 6),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: FilterChip(
+                          label: Text(
+                              localizations.text('only_dietary')),
+                          selected: dialogFilterOnlyDiet,
+                          onSelected: (val) => setDialogState(
+                              () => dialogFilterOnlyDiet = val),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Flexible(
+                        child: otherGuests.isEmpty
+                            ? Center(
+                                child: Text(
+                                    localizations.text('no_matches')))
+                            : ListView.builder(
+                                shrinkWrap: true,
+                                itemCount: otherGuests.length,
+                                itemBuilder: (context, i) {
+                                  final other = otherGuests[i];
+                                  final currentRelationType =
+                                      currentGuest.relations[other.id];
+
+                                  return ListTile(
+                                    title: Text(other.fullName),
+                                    subtitle: other
+                                            .dietaryRestrictions
+                                            .isNotEmpty
+                                        ? Text(
+                                            other.dietaryRestrictions
+                                                .join(', '),
+                                            style: const TextStyle(
+                                                fontSize: 12),
+                                          )
+                                        : null,
+                                    trailing: DropdownButton<RelationType>(
+                                      hint: Text(localizations
+                                          .text('choose_relation')),
+                                      value: currentRelationType,
+                                      items:
+                                          RelationType.values.map((type) {
+                                        String label = type.name;
+                                        if (type == RelationType.none) {
+                                          label = localizations.text(
+                                              'relation_none_label');
+                                        }
+                                        if (type ==
+                                            RelationType.partner) {
+                                          label = localizations.text(
+                                              'relation_partner_label');
+                                        }
+                                        if (type ==
+                                            RelationType.friend) {
+                                          label = localizations.text(
+                                              'relation_friend_label');
+                                        }
+                                        if (type ==
+                                            RelationType.avoid) {
+                                          label = localizations.text(
+                                              'relation_avoid_label');
+                                        }
+                                        return DropdownMenuItem(
+                                          value: type,
+                                          child: Text(label),
+                                        );
+                                      }).toList(),
+                                      onChanged: (type) {
+                                        setState(() {
+                                          setDialogState(() {
+                                            if (type != null) {
+                                              if (type ==
+                                                  RelationType.none) {
+                                                currentGuest.relations
+                                                    .remove(other.id);
+                                                other.relations.remove(
+                                                    currentGuest.id);
+                                              } else {
+                                                currentGuest
+                                                        .relations[
+                                                    other.id] = type;
+                                                other.relations[
+                                                    currentGuest
+                                                        .id] = type;
+                                              }
+                                            }
+                                          });
+                                        });
+                                        _syncToStorage();
+                                      },
+                                    ),
+                                  );
+                                },
+                              ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             );
           },
