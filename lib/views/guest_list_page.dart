@@ -135,6 +135,13 @@ class _GuestListPageState extends State<GuestListPage>
       localizations.text('diet_option_milk_protein_allergy'),
       localizations.text('diet_option_egg_allergy'),
       localizations.text('diet_option_shellfish_allergy'),
+      localizations.text('diet_option_pregnant'),
+      localizations.text('diet_option_mollusks'),
+      localizations.text('diet_option_sesame'),
+      localizations.text('diet_option_beets'),
+      localizations.text('diet_option_wheat'),
+      localizations.text('diet_option_rye'),
+      localizations.text('diet_option_gluten'),
     ];
 
     final firstNameCtrl = TextEditingController(
@@ -772,38 +779,126 @@ class _GuestListPageState extends State<GuestListPage>
                     ],
                   ),
                   const SizedBox(height: 14),
-                  AppSearchField(
-                    hintText: localizations.text('search_placeholder'),
-                    filled: true,
-                    fillColor: const Color(0xFFF7F3F4),
-                    onChanged: (val) => setState(() => _searchQuery = val),
-                  ),
-                  const SizedBox(height: 10),
-                  Flex(
-                    direction: isCompact ? Axis.vertical : Axis.horizontal,
-                    crossAxisAlignment: isCompact
-                        ? CrossAxisAlignment.stretch
-                        : CrossAxisAlignment.center,
-                    children: [
-                      if (isCompact)
-                        AppDropdownFormField<GuestSortOption>(
-                          initialValue: _selectedSort,
-                          labelText: localizations.text('sort_label'),
-                          items: GuestSortOption.values
+                  if (isCompact) ...[
+                    // Compact: search bar + 3 filter icons on a single row
+                    Row(
+                      children: [
+                        Expanded(
+                          child: AppSearchField(
+                            hintText: localizations.text('search_placeholder'),
+                            filled: true,
+                            fillColor: const Color(0xFFF7F3F4),
+                            onChanged: (val) =>
+                                setState(() => _searchQuery = val),
+                          ),
+                        ),
+                        PopupMenuButton<GuestSortOption>(
+                          icon: Icon(
+                            Icons.sort,
+                            size: 20,
+                            color: _selectedSort != GuestSortOption.nameAscending
+                                ? const Color(0xFFC46C84)
+                                : const Color(0xFF6E6166),
+                          ),
+                          tooltip: localizations.text('sort_label'),
+                          onSelected: (val) =>
+                              setState(() => _selectedSort = val),
+                          itemBuilder: (context) => GuestSortOption.values
                               .map(
-                                (sort) => DropdownMenuItem(
+                                (sort) => PopupMenuItem<GuestSortOption>(
                                   value: sort,
-                                  child: Text(_sortLabel(sort)),
+                                  child: Row(
+                                    children: [
+                                      if (_selectedSort == sort)
+                                        const Icon(Icons.check,
+                                            size: 16,
+                                            color: Color(0xFFC46C84))
+                                      else
+                                        const SizedBox(width: 16),
+                                      const SizedBox(width: 8),
+                                      Text(_sortLabel(sort)),
+                                    ],
+                                  ),
                                 ),
                               )
                               .toList(),
-                          onChanged: (value) {
-                            if (value != null) {
-                              setState(() => _selectedSort = value);
-                            }
-                          },
-                        )
-                      else
+                        ),
+                        PopupMenuButton<GuestTitle?>(
+                          icon: Icon(
+                            Icons.filter_list,
+                            size: 20,
+                            color: _selectedTitleFilter != null
+                                ? const Color(0xFFC46C84)
+                                : const Color(0xFF6E6166),
+                          ),
+                          tooltip: localizations.text('filter_role_label'),
+                          onSelected: (val) =>
+                              setState(() => _selectedTitleFilter = val),
+                          itemBuilder: (context) => [
+                            PopupMenuItem<GuestTitle?>(
+                              value: null,
+                              child: Row(
+                                children: [
+                                  if (_selectedTitleFilter == null)
+                                    const Icon(Icons.check,
+                                        size: 16,
+                                        color: Color(0xFFC46C84))
+                                  else
+                                    const SizedBox(width: 16),
+                                  const SizedBox(width: 8),
+                                  Text(localizations.text('all_roles')),
+                                ],
+                              ),
+                            ),
+                            ...GuestTitle.values.map(
+                              (title) => PopupMenuItem<GuestTitle?>(
+                                value: title,
+                                child: Row(
+                                  children: [
+                                    if (_selectedTitleFilter == title)
+                                      const Icon(Icons.check,
+                                          size: 16,
+                                          color: Color(0xFFC46C84))
+                                    else
+                                      const SizedBox(width: 16),
+                                    const SizedBox(width: 8),
+                                    Text(localizations.guestTitle(title)),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        IconButton(
+                          icon: Icon(
+                            Icons.no_meals,
+                            size: 20,
+                            color: _filterOnlyDiet
+                                ? const Color(0xFFC46C84)
+                                : const Color(0xFF6E6166),
+                          ),
+                          tooltip: localizations.text('only_dietary'),
+                          onPressed: () =>
+                              setState(() => _filterOnlyDiet = !_filterOnlyDiet),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Chip(
+                      avatar: const Icon(Icons.push_pin_outlined, size: 16),
+                      label: Text(localizations.text('hosts_pinned')),
+                    ),
+                  ] else ...[
+                    // Desktop: full search + side-by-side dropdowns
+                    AppSearchField(
+                      hintText: localizations.text('search_placeholder'),
+                      filled: true,
+                      fillColor: const Color(0xFFF7F3F4),
+                      onChanged: (val) => setState(() => _searchQuery = val),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
                         Expanded(
                           child: AppDropdownFormField<GuestSortOption>(
                             initialValue: _selectedSort,
@@ -823,37 +918,13 @@ class _GuestListPageState extends State<GuestListPage>
                             },
                           ),
                         ),
-                      SizedBox(
-                        width: isCompact ? 0 : 10,
-                        height: isCompact ? 10 : 0,
-                      ),
-                      if (isCompact)
-                        AppDropdownFormField<GuestTitle?>(
-                          initialValue: _selectedTitleFilter,
-                          labelText: localizations.text('filter_role_label'),
-                          items: [
-                            DropdownMenuItem<GuestTitle?>(
-                              value: null,
-                              child: Text(localizations.text('all_roles')),
-                            ),
-                            ...GuestTitle.values.map(
-                              (title) => DropdownMenuItem<GuestTitle?>(
-                                value: title,
-                                child: Text(localizations.guestTitle(title)),
-                              ),
-                            ),
-                          ],
-                          onChanged: (value) {
-                            setState(() => _selectedTitleFilter = value);
-                          },
-                        )
-                      else
+                        const SizedBox(width: 10),
                         Expanded(
                           child: AppDropdownFormField<GuestTitle?>(
                             initialValue: _selectedTitleFilter,
                             labelText: localizations.text('filter_role_label'),
                             items: [
-                            DropdownMenuItem<GuestTitle?>(
+                              DropdownMenuItem<GuestTitle?>(
                                 value: null,
                                 child: Text(localizations.text('all_roles')),
                               ),
@@ -869,25 +940,26 @@ class _GuestListPageState extends State<GuestListPage>
                             },
                           ),
                         ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      FilterChip(
-                        label: Text(localizations.text('only_dietary')),
-                        selected: _filterOnlyDiet,
-                        onSelected: (val) =>
-                            setState(() => _filterOnlyDiet = val),
-                      ),
-                      Chip(
-                        avatar: Icon(Icons.push_pin_outlined, size: 16),
-                        label: Text(localizations.text('hosts_pinned')),
-                      ),
-                    ],
-                  ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        FilterChip(
+                          label: Text(localizations.text('only_dietary')),
+                          selected: _filterOnlyDiet,
+                          onSelected: (val) =>
+                              setState(() => _filterOnlyDiet = val),
+                        ),
+                        Chip(
+                          avatar: const Icon(Icons.push_pin_outlined, size: 16),
+                          label: Text(localizations.text('hosts_pinned')),
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),

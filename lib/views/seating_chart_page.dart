@@ -368,7 +368,7 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
         return;
       }
 
-      // Ladda alla tabeller fr├Ñn Supabase
+      // Ladda alla tabeller från Supabase
       final loadedTables = dbTables
           .map(
             (t) => {
@@ -376,10 +376,21 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
               'name': t['name'],
               'seats': t['seats'],
               'shape': t['shape'],
+              'created_at': t['created_at'] ?? '',
               'assigned': <Guest>[],
             },
           )
           .toList();
+
+      // Ensure ascending created_at order (Supabase already orders this way,
+      // but sort locally as a safety guarantee).
+      loadedTables.sort((a, b) {
+        final aDate = DateTime.tryParse(a['created_at']?.toString() ?? '') ??
+            DateTime.fromMillisecondsSinceEpoch(0);
+        final bDate = DateTime.tryParse(b['created_at']?.toString() ?? '') ??
+            DateTime.fromMillisecondsSinceEpoch(0);
+        return aDate.compareTo(bDate);
+      });
 
       if (!mounted) return;
       setState(() {
@@ -1300,57 +1311,167 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 4.0),
-            child: AppSearchField(
-              hintText: localizations.text('search_placeholder'),
-              dense: true,
-              onChanged: (val) => setState(() => _chartSearchQuery = val),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 4.0),
-            child: AppDropdownFormField<GuestTitle?>(
-              initialValue: _chartTitleFilter,
-              labelText: localizations.text('filter_role_label'),
-              isExpanded: true,
-              isDense: true,
-              items: [
-                DropdownMenuItem(value: null, child: Text(localizations.text('all_roles'))),
-                ...GuestTitle.values.map(
-                  (t) => DropdownMenuItem(value: t, child: Text(localizations.guestTitle(t))),
-                ),
-              ],
-              onChanged: (val) => setState(() => _chartTitleFilter = val),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 4.0),
-            child: AppDropdownFormField<GuestSortOption>(
-              initialValue: _chartSort,
-              labelText: localizations.text('sort_label'),
-              isExpanded: true,
-              isDense: true,
-              items: GuestSortOption.values
-                  .map(
-                    (sort) => DropdownMenuItem(
-                      value: sort,
-                      child: Text(_sortLabel(localizations, sort)),
-                    ),
+            child: isCompact
+                ? Row(
+                    children: [
+                      Expanded(
+                        child: AppSearchField(
+                          hintText: localizations.text('search_placeholder'),
+                          dense: true,
+                          onChanged: (val) =>
+                              setState(() => _chartSearchQuery = val),
+                        ),
+                      ),
+                      PopupMenuButton<GuestSortOption>(
+                        icon: Icon(
+                          Icons.sort,
+                          size: 20,
+                          color: _chartSort != GuestSortOption.nameAscending
+                              ? const Color(0xFFC46C84)
+                              : null,
+                        ),
+                        tooltip: localizations.text('sort_label'),
+                        onSelected: (val) =>
+                            setState(() => _chartSort = val),
+                        itemBuilder: (context) => GuestSortOption.values
+                            .map(
+                              (sort) => PopupMenuItem<GuestSortOption>(
+                                value: sort,
+                                child: Row(
+                                  children: [
+                                    if (_chartSort == sort)
+                                      const Icon(Icons.check,
+                                          size: 16,
+                                          color: Color(0xFFC46C84))
+                                    else
+                                      const SizedBox(width: 16),
+                                    const SizedBox(width: 8),
+                                    Text(_sortLabel(localizations, sort)),
+                                  ],
+                                ),
+                              ),
+                            )
+                            .toList(),
+                      ),
+                      PopupMenuButton<GuestTitle?>(
+                        icon: Icon(
+                          Icons.filter_list,
+                          size: 20,
+                          color: _chartTitleFilter != null
+                              ? const Color(0xFFC46C84)
+                              : null,
+                        ),
+                        tooltip: localizations.text('filter_role_label'),
+                        onSelected: (val) =>
+                            setState(() => _chartTitleFilter = val),
+                        itemBuilder: (context) => [
+                          PopupMenuItem<GuestTitle?>(
+                            value: null,
+                            child: Row(
+                              children: [
+                                if (_chartTitleFilter == null)
+                                  const Icon(Icons.check,
+                                      size: 16,
+                                      color: Color(0xFFC46C84))
+                                else
+                                  const SizedBox(width: 16),
+                                const SizedBox(width: 8),
+                                Text(localizations.text('all_roles')),
+                              ],
+                            ),
+                          ),
+                          ...GuestTitle.values.map(
+                            (t) => PopupMenuItem<GuestTitle?>(
+                              value: t,
+                              child: Row(
+                                children: [
+                                  if (_chartTitleFilter == t)
+                                    const Icon(Icons.check,
+                                        size: 16,
+                                        color: Color(0xFFC46C84))
+                                  else
+                                    const SizedBox(width: 16),
+                                  const SizedBox(width: 8),
+                                  Text(localizations.guestTitle(t)),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      IconButton(
+                        icon: Icon(
+                          Icons.no_meals,
+                          size: 20,
+                          color: _chartOnlyDietary
+                              ? const Color(0xFFC46C84)
+                              : null,
+                        ),
+                        tooltip: localizations.text('only_dietary'),
+                        onPressed: () => setState(
+                            () => _chartOnlyDietary = !_chartOnlyDietary),
+                      ),
+                    ],
                   )
-                  .toList(),
-              onChanged: (val) => setState(() => _chartSort = val ?? _chartSort),
-            ),
+                : AppSearchField(
+                    hintText: localizations.text('search_placeholder'),
+                    dense: true,
+                    onChanged: (val) =>
+                        setState(() => _chartSearchQuery = val),
+                  ),
           ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 4.0),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: FilterChip(
-                label: Text(localizations.text('only_dietary')),
-                selected: _chartOnlyDietary,
-                onSelected: (selected) => setState(() => _chartOnlyDietary = selected),
+          if (!isCompact) ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 4.0),
+              child: AppDropdownFormField<GuestTitle?>(
+                initialValue: _chartTitleFilter,
+                labelText: localizations.text('filter_role_label'),
+                isExpanded: true,
+                isDense: true,
+                items: [
+                  DropdownMenuItem(
+                      value: null,
+                      child: Text(localizations.text('all_roles'))),
+                  ...GuestTitle.values.map(
+                    (t) => DropdownMenuItem(
+                        value: t, child: Text(localizations.guestTitle(t))),
+                  ),
+                ],
+                onChanged: (val) => setState(() => _chartTitleFilter = val),
               ),
             ),
-          ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 4.0),
+              child: AppDropdownFormField<GuestSortOption>(
+                initialValue: _chartSort,
+                labelText: localizations.text('sort_label'),
+                isExpanded: true,
+                isDense: true,
+                items: GuestSortOption.values
+                    .map(
+                      (sort) => DropdownMenuItem(
+                        value: sort,
+                        child: Text(_sortLabel(localizations, sort)),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (val) =>
+                    setState(() => _chartSort = val ?? _chartSort),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 4.0),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: FilterChip(
+                  label: Text(localizations.text('only_dietary')),
+                  selected: _chartOnlyDietary,
+                  onSelected: (selected) =>
+                      setState(() => _chartOnlyDietary = selected),
+                ),
+              ),
+            ),
+          ],
           const Divider(height: 16),
           Expanded(
             child: Builder(

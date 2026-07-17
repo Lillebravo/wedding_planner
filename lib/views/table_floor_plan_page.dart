@@ -9,6 +9,7 @@ import 'package:flutter/rendering.dart';
 import '../models/guest_model.dart';
 import '../l10n/app_localizations.dart';
 import '../services/storage_service.dart';
+import '../widgets/app_confirm_dialog.dart';
 import '../widgets/language_toggle_button.dart';
 import '../widgets/table_form_dialog.dart';
 
@@ -472,54 +473,81 @@ class _TableFloorPlanPageState extends State<TableFloorPlanPage> {
         Positioned(
           left: chipRect.left,
           top: chipRect.top,
-          child: LongPressDraggable<_SeatDropPayload>(
-            data: _SeatDropPayload.guest(guest),
-            feedback: Material(
-              color: Colors.transparent,
-              child: _guestChipCard(
-                guest: guest,
-                width: chipSize.width,
-                height: chipSize.height,
-                highlighted: true,
-                text: hasDietaryText ? '${guest.displayName}\n$dietaryText' : guest.displayName,
-              ),
-            ),
-            childWhenDragging: Opacity(
-              opacity: 0.25,
-              child: _guestChipCard(
-                guest: guest,
-                width: chipSize.width,
-                height: chipSize.height,
-                highlighted: false,
-                text: hasDietaryText ? '${guest.displayName}\n$dietaryText' : guest.displayName,
-              ),
-            ),
-            onDragStarted: () => setState(() {
-              _hoveredGuestId = guest.id;
-              _isDragging = true;
-            }),
-            onDragEnd: (_) => setState(() {
-              _hoveredGuestId = null;
-              _isDragging = false;
-            }),
-            child: MouseRegion(
-              onEnter: (_) => setState(() => _hoveredGuestId = guest.id),
-              onExit: (_) {
-                if (_hoveredGuestId == guest.id) {
-                  setState(() => _hoveredGuestId = null);
-                }
-              },
-              child: AnimatedScale(
-                scale: isHovered ? 1.06 : 1.0,
-                duration: const Duration(milliseconds: 120),
-                child: _guestChipCard(
-                  guest: guest,
-                  width: chipSize.width,
-                  height: chipSize.height,
-                  highlighted: guest.isLocked || guest.isPlaceholder,
-                  text: hasDietaryText ? '${guest.displayName}\n$dietaryText' : guest.displayName,
+          child: SizedBox(
+            width: chipSize.width,
+            height: chipSize.height,
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                LongPressDraggable<_SeatDropPayload>(
+                  data: _SeatDropPayload.guest(guest),
+                  feedback: Material(
+                    color: Colors.transparent,
+                    child: _guestChipCard(
+                      guest: guest,
+                      width: chipSize.width,
+                      height: chipSize.height,
+                      highlighted: true,
+                      text: hasDietaryText ? '${guest.displayName}\n$dietaryText' : guest.displayName,
+                    ),
+                  ),
+                  childWhenDragging: Opacity(
+                    opacity: 0.25,
+                    child: _guestChipCard(
+                      guest: guest,
+                      width: chipSize.width,
+                      height: chipSize.height,
+                      highlighted: false,
+                      text: hasDietaryText ? '${guest.displayName}\n$dietaryText' : guest.displayName,
+                    ),
+                  ),
+                  onDragStarted: () => setState(() {
+                    _hoveredGuestId = guest.id;
+                    _isDragging = true;
+                  }),
+                  onDragEnd: (_) => setState(() {
+                    _hoveredGuestId = null;
+                    _isDragging = false;
+                  }),
+                  child: MouseRegion(
+                    onEnter: (_) => setState(() => _hoveredGuestId = guest.id),
+                    onExit: (_) {
+                      if (_hoveredGuestId == guest.id) {
+                        setState(() => _hoveredGuestId = null);
+                      }
+                    },
+                    child: AnimatedScale(
+                      scale: isHovered ? 1.06 : 1.0,
+                      duration: const Duration(milliseconds: 120),
+                      child: _guestChipCard(
+                        guest: guest,
+                        width: chipSize.width,
+                        height: chipSize.height,
+                        highlighted: guest.isLocked || guest.isPlaceholder,
+                        text: hasDietaryText ? '${guest.displayName}\n$dietaryText' : guest.displayName,
+                      ),
+                    ),
+                  ),
                 ),
-              ),
+                if (guest.isPlaceholder && !widget.readOnly)
+                  Positioned(
+                    right: -5,
+                    top: -5,
+                    child: GestureDetector(
+                      onTap: () => _confirmDeleteEmptyChair(guest, table),
+                      child: Container(
+                        width: 17,
+                        height: 17,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.red.shade600,
+                          border: Border.all(color: Colors.white, width: 1.5),
+                        ),
+                        child: const Icon(Icons.close, size: 9, color: Colors.white),
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
         ),
@@ -539,6 +567,29 @@ class _TableFloorPlanPageState extends State<TableFloorPlanPage> {
       isLocked: true,
       isPlaceholder: true,
     );
+  }
+
+  void _confirmDeleteEmptyChair(Guest guest, Map<String, dynamic> table) {
+    final localizations = AppLocalizationsScope.of(context);
+    showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AppConfirmDialog(
+        titleText: localizations.text('delete_empty_chair_title'),
+        contentText: localizations.text('delete_empty_chair_confirm'),
+        confirmLabel: localizations.text('delete'),
+        cancelLabel: localizations.text('cancel'),
+        destructive: true,
+      ),
+    ).then((shouldDelete) {
+      if (shouldDelete != true || !mounted) return;
+      final tableId = (table['id'] ?? '').toString();
+      setState(() {
+        _allGuests.removeWhere((g) => g.id == guest.id);
+        _guestsByTable[tableId]?.removeWhere((g) => g.id == guest.id);
+        _reindexGuestsForTable(table);
+        _hasUnsavedChanges = true;
+      });
+    });
   }
 
   bool _placeGuestOnTable(

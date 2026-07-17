@@ -478,7 +478,7 @@ class StorageService {
   static Future<List<Map<String, dynamic>>> getTables(String weddingId) async {
     final response = await supabase
         .from('tables')
-      .select('id, name, seats, shape, position_x, position_y, rotation_degrees, short_side_placement_enabled')
+      .select('id, name, seats, shape, position_x, position_y, rotation_degrees, short_side_placement_enabled, created_at')
         .eq('wedding_id', weddingId)
         .order('created_at', ascending: true);
 
@@ -493,6 +493,7 @@ class StorageService {
             'position_y': item['position_y'],
             'rotation_degrees': item['rotation_degrees'] ?? 0,
             'short_side_placement_enabled': item['short_side_placement_enabled'] ?? true,
+            'created_at': (item['created_at'] ?? '').toString(),
           },
         )
         .toList();
