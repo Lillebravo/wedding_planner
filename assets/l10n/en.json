@@ -52,6 +52,7 @@
   "save": "Save",
   "save_success": "Table positions saved.",
   "empty_chair": "Empty chair",
+  "empty_chair_drag_tooltip": "Drag to a table to place",
   "floor_plan_help": "Drag tables to place them in the room. Zoom with pinch or Ctrl + scroll.",
   "floor_plan_read_only_hint": "Read-only view. You can zoom and inspect placements, but not change them.",
   "add_table": "Add table",
@@ -291,4 +292,6 @@
   ,"admin_unlock_success": "Admin mode enabled."
   ,"leave_admin_mode": "Leave admin mode"
   ,"admin_mode_disabled": "Admin mode disabled on this device."
+  ,"add_empty_chair_tooltip": "Add empty chair"
+  ,"add_empty_chair_select_table": "Select table"
 }

@@ -65,6 +65,18 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
   bool _isLoadingTables = true;
   final GlobalKey _visualLayoutKey = GlobalKey();
 
+  late Guest _emptyChairDraggable;
+
+  Guest _freshEmptyChair() => Guest(
+    id: 'empty-chair-${DateTime.now().microsecondsSinceEpoch}',
+    firstName: 'Empty',
+    lastName: 'chair',
+    createdAt: DateTime.now().toUtc(),
+    title: GuestTitle.none,
+    isLocked: true,
+    isPlaceholder: true,
+  );
+
   List<Map<String, dynamic>> tables = [];
 
   final List<PlacementRuleSetting> _placementRules = [
@@ -170,6 +182,7 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
   @override
   void initState() {
     super.initState();
+    _emptyChairDraggable = _freshEmptyChair();
     _loadPlacementRules();
     _loadTables();
   }
@@ -442,6 +455,26 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
       final bSeat = b.seatNumber ?? 9999;
       return aSeat.compareTo(bSeat);
     });
+  }
+
+  Future<void> _showAddEmptyChairDialog() async {
+    if (tables.isEmpty) return;
+
+    final chair = Guest(
+      id: 'empty-chair-${DateTime.now().microsecondsSinceEpoch}',
+      firstName: 'Empty',
+      lastName: 'chair',
+      createdAt: DateTime.now().toUtc(),
+      title: GuestTitle.none,
+      isLocked: true,
+      isPlaceholder: true,
+    );
+
+    setState(() {
+      widget.guests.add(chair);
+    });
+
+    await StorageService.saveGuests(widget.weddingId, widget.guests);
   }
 
   void _reindexSeats(List<Guest> assignedGuests, Map<String, dynamic> table) {
@@ -1104,6 +1137,11 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
     // Reload guest seat assignments from DB so that any moves or empty chairs
     // added in the floor plan are reflected when we re-build the tables pane.
     final freshGuests = await StorageService.getGuests(widget.weddingId);
+    final freshIds = {for (final g in freshGuests) g.id};
+
+    // Remove guests deleted in the floor plan (e.g. deleted empty chairs).
+    widget.guests.removeWhere((g) => !freshIds.contains(g.id));
+
     for (final fresh in freshGuests) {
       final idx = widget.guests.indexWhere((g) => g.id == fresh.id);
       if (idx >= 0) {
@@ -1144,6 +1182,10 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
                       return;
                     }
                     setState(() {
+                      // Register a brand-new empty chair that isn't in widget.guests yet.
+                      if (!widget.guests.contains(details.data)) {
+                        widget.guests.add(details.data);
+                      }
                       Map<String, dynamic>? oldTable;
                       for (var t in tables) {
                         final assigned = t['assigned'] as List<Guest>;
@@ -1217,6 +1259,9 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
                                   },
                                   itemBuilder: (context, guestIndex) {
                                     final guest = assignedGuests[guestIndex];
+                                    final assignedGuestName = guest.isPlaceholder
+                                        ? localizations.text('empty_chair')
+                                        : guest.fullName;
                                     return Container(
                                       key: ValueKey('${table['id']}-${guest.id}'),
                                       margin: const EdgeInsets.symmetric(vertical: 2),
@@ -1232,8 +1277,10 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
                                               child: ListTile(
                                                 dense: true,
                                                 contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-                                                leading: const Icon(Icons.drag_indicator),
-                                                title: Text('${guest.seatNumber}. ${guest.fullName}'),
+                                                leading: guest.isPlaceholder
+                                                    ? const Icon(Icons.chair_alt_outlined, color: Colors.grey)
+                                                    : const Icon(Icons.drag_indicator),
+                                                title: Text('${guest.seatNumber}. $assignedGuestName'),
                                               ),
                                             ),
                                           ),
@@ -1254,8 +1301,13 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
                                             onPressed: () async {
                                               setState(() {
                                                 assignedGuests.remove(guest);
-                                                guest.tableId = null;
-                                                guest.seatNumber = null;
+                                                if (guest.isPlaceholder) {
+                                                  // Delete the empty chair entirely.
+                                                  widget.guests.remove(guest);
+                                                } else {
+                                                  guest.tableId = null;
+                                                  guest.seatNumber = null;
+                                                }
                                                 _reindexSeats(assignedGuests, table);
                                               });
                                               await StorageService.saveGuests(
@@ -1411,6 +1463,48 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
                         onPressed: () => setState(
                             () => _chartOnlyDietary = !_chartOnlyDietary),
                       ),
+                      Tooltip(
+                        message: localizations.text('empty_chair_drag_tooltip'),
+                        child: Draggable<Guest>(
+                          data: _emptyChairDraggable,
+                          onDragEnd: (details) {
+                            if (details.wasAccepted) {
+                              setState(() => _emptyChairDraggable = _freshEmptyChair());
+                            }
+                          },
+                          feedback: Material(
+                            color: Colors.transparent,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF2F2F2),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: const Color(0xFFD6DDEB)),
+                                boxShadow: const [BoxShadow(color: Color(0x20000000), blurRadius: 8, offset: Offset(0, 4))],
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.chair_alt_outlined, size: 18, color: Color(0xFF666666)),
+                                  const SizedBox(width: 6),
+                                  Text(localizations.text('empty_chair'), style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                                ],
+                              ),
+                            ),
+                          ),
+                          childWhenDragging: Opacity(
+                            opacity: 0.35,
+                            child: IconButton(
+                              icon: const Icon(Icons.chair_alt_outlined, size: 20),
+                              onPressed: null,
+                            ),
+                          ),
+                          child: IconButton(
+                            icon: const Icon(Icons.chair_alt_outlined, size: 20),
+                            onPressed: null,
+                          ),
+                        ),
+                      ),
                     ],
                   )
                 : AppSearchField(
@@ -1471,6 +1565,79 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
                 ),
               ),
             ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8.0, 0, 12.0, 4.0),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Tooltip(
+                  message: localizations.text('empty_chair_drag_tooltip'),
+                  child: Draggable<Guest>(
+                    data: _emptyChairDraggable,
+                    onDragEnd: (details) {
+                      if (details.wasAccepted) {
+                        setState(() => _emptyChairDraggable = _freshEmptyChair());
+                      }
+                    },
+                    feedback: Material(
+                      color: Colors.transparent,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF2F2F2),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFD6DDEB)),
+                          boxShadow: const [BoxShadow(color: Color(0x14000000), blurRadius: 8, offset: Offset(0, 4))],
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.chair_alt_outlined, size: 18, color: Color(0xFF666666)),
+                            const SizedBox(width: 8),
+                            Text(localizations.text('empty_chair'), style: const TextStyle(fontWeight: FontWeight.w600)),
+                          ],
+                        ),
+                      ),
+                    ),
+                    childWhenDragging: Opacity(
+                      opacity: 0.35,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF8FAFF),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFD6DDEB)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.chair_alt_outlined, size: 18, color: Color(0xFF4B6BFB)),
+                            const SizedBox(width: 8),
+                            Text(localizations.text('empty_chair'), style: const TextStyle(fontWeight: FontWeight.w600)),
+                          ],
+                        ),
+                      ),
+                    ),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF8FAFF),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFD6DDEB)),
+                        boxShadow: const [BoxShadow(color: Color(0x14000000), blurRadius: 8, offset: Offset(0, 4))],
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.chair_alt_outlined, size: 18, color: Color(0xFF4B6BFB)),
+                          const SizedBox(width: 8),
+                          Text(localizations.text('empty_chair'), style: const TextStyle(fontWeight: FontWeight.w600)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
           ],
           const Divider(height: 16),
           Expanded(
@@ -1491,18 +1658,21 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
                   itemBuilder: (context, index) {
                     final guest = menuList[index];
                     final isHost = guest.title == GuestTitle.bride || guest.title == GuestTitle.groom;
+                    final guestName = guest.isPlaceholder
+                        ? localizations.text('empty_chair')
+                        : guest.fullName;
 
                     return Draggable<Guest>(
                       data: guest,
                       feedback: Material(
                         child: Container(
                           padding: const EdgeInsets.all(12),
-                          color: isHost ? Colors.pink[100] : Colors.blue[100],
-                          child: Text(guest.fullName),
+                          color: guest.isPlaceholder ? Colors.grey[200] : (isHost ? Colors.pink[100] : Colors.blue[100]),
+                          child: Text(guestName),
                         ),
                       ),
                       childWhenDragging: ListTile(
-                        title: Text(guest.fullName, style: const TextStyle(color: Colors.grey)),
+                        title: Text(guestName, style: const TextStyle(color: Colors.grey)),
                         leading: const Icon(Icons.person, color: Colors.grey),
                       ),
                       child: Material(
@@ -1510,18 +1680,24 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
                         child: ListTile(
                           tileColor: isHost ? Colors.pink[50] : null,
                           title: Text(
-                            guest.fullName,
+                            guestName,
                             style: TextStyle(fontWeight: isHost ? FontWeight.bold : FontWeight.normal),
                           ),
-                          subtitle: Text(localizations.guestTitle(guest.title)),
-                          leading: const Icon(Icons.drag_indicator),
-                          trailing: IconButton(
-                            icon: Icon(guest.isLocked ? Icons.lock : Icons.lock_open),
-                            onPressed: () async {
-                              setState(() => guest.isLocked = !guest.isLocked);
-                              await StorageService.saveGuests(widget.weddingId, widget.guests);
-                            },
-                          ),
+                          subtitle: guest.isPlaceholder
+                              ? null
+                              : Text(localizations.guestTitle(guest.title)),
+                          leading: guest.isPlaceholder
+                              ? const Icon(Icons.chair_alt_outlined, color: Colors.grey)
+                              : const Icon(Icons.drag_indicator),
+                          trailing: guest.isPlaceholder
+                              ? null
+                              : IconButton(
+                                  icon: Icon(guest.isLocked ? Icons.lock : Icons.lock_open),
+                                  onPressed: () async {
+                                    setState(() => guest.isLocked = !guest.isLocked);
+                                    await StorageService.saveGuests(widget.weddingId, widget.guests);
+                                  },
+                                ),
                         ),
                       ),
                     );

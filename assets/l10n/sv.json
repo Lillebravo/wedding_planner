@@ -52,6 +52,7 @@
   "save": "Spara",
   "save_success": "Bordens placering sparad.",
   "empty_chair": "Tom stol",
+  "empty_chair_drag_tooltip": "Dra till ett bord för att placera",
   "floor_plan_help": "Dra borden för att placera dem i lokalen. Zooma med pinch eller Ctrl + scroll.",
   "floor_plan_read_only_hint": "Skrivskyddad vy. Du kan zooma och se placeringar, men inte ändra något.",
   "add_table": "Lägg till bord",
@@ -289,5 +290,7 @@
   "admin_unlock_failed": "Fel admin-kod.",
   "admin_unlock_success": "Admin-läge aktiverat.",
   "leave_admin_mode": "Lämna admin-läge",
-  "admin_mode_disabled": "Admin-läge avstängt på den här enheten."
+  "admin_mode_disabled": "Admin-läge avstängt på den här enheten.",
+  "add_empty_chair_tooltip": "Lägg till tom stol",
+  "add_empty_chair_select_table": "Välj bord"
 }

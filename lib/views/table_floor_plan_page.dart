@@ -291,6 +291,7 @@ class _TableFloorPlanPageState extends State<TableFloorPlanPage> {
   }
 
   List<Widget> _buildGuestNodesForTable(Map<String, dynamic> table) {
+    final localizations = AppLocalizationsScope.of(context);
     final tableId = (table['id'] ?? '').toString();
     if (tableId.isEmpty) {
       return const <Widget>[];
@@ -424,7 +425,10 @@ class _TableFloorPlanPageState extends State<TableFloorPlanPage> {
       final alignRight = direction.dx < 0;
       final dietaryText = guest.dietaryRestrictions.join(', ').trim();
       final hasDietaryText = dietaryText.isNotEmpty;
-      final chipSize = _measureGuestChipSize(guest: guest, textScaler: textScaler);
+      final guestDisplayName = guest.isPlaceholder
+          ? localizations.text('empty_chair')
+          : guest.displayName;
+      final chipSize = _measureGuestChipSize(guest: guest, name: guestDisplayName, textScaler: textScaler);
       final chipRect = _resolveGuestChipRect(
         seatCenter: seatCenter,
         direction: direction,
@@ -488,7 +492,7 @@ class _TableFloorPlanPageState extends State<TableFloorPlanPage> {
                       width: chipSize.width,
                       height: chipSize.height,
                       highlighted: true,
-                      text: hasDietaryText ? '${guest.displayName}\n$dietaryText' : guest.displayName,
+                      text: hasDietaryText ? '$guestDisplayName\n$dietaryText' : guestDisplayName,
                     ),
                   ),
                   childWhenDragging: Opacity(
@@ -498,7 +502,7 @@ class _TableFloorPlanPageState extends State<TableFloorPlanPage> {
                       width: chipSize.width,
                       height: chipSize.height,
                       highlighted: false,
-                      text: hasDietaryText ? '${guest.displayName}\n$dietaryText' : guest.displayName,
+                      text: hasDietaryText ? '$guestDisplayName\n$dietaryText' : guestDisplayName,
                     ),
                   ),
                   onDragStarted: () => setState(() {
@@ -524,7 +528,7 @@ class _TableFloorPlanPageState extends State<TableFloorPlanPage> {
                         width: chipSize.width,
                         height: chipSize.height,
                         highlighted: guest.isLocked || guest.isPlaceholder,
-                        text: hasDietaryText ? '${guest.displayName}\n$dietaryText' : guest.displayName,
+                        text: hasDietaryText ? '$guestDisplayName\n$dietaryText' : guestDisplayName,
                       ),
                     ),
                   ),
@@ -1126,6 +1130,7 @@ class _TableFloorPlanPageState extends State<TableFloorPlanPage> {
   Size _measureGuestChipSize({
     required Guest guest,
     required TextScaler textScaler,
+    String? name,
   }) {
     const horizontalPadding = 10.0;
     const verticalPadding = 5.0;
@@ -1135,7 +1140,7 @@ class _TableFloorPlanPageState extends State<TableFloorPlanPage> {
     final hasDietaryText = dietaryText.isNotEmpty;
 
     final namePainter = TextPainter(
-      text: TextSpan(text: guest.fullName, style: _guestNameTextStyle),
+      text: TextSpan(text: name ?? guest.fullName, style: _guestNameTextStyle),
       textDirection: TextDirection.ltr,
       textScaler: textScaler,
       maxLines: 1,
@@ -1402,19 +1407,22 @@ class _TableFloorPlanPageState extends State<TableFloorPlanPage> {
               label: Text(localizations.text('seating_chart_export_png')),
             ),
             if (!widget.readOnly)
-              Draggable<_SeatDropPayload>(
-                data: const _SeatDropPayload.emptyChair(),
-                onDragStarted: () => setState(() => _isDragging = true),
-                onDragEnd: (_) => setState(() => _isDragging = false),
-                feedback: Material(
-                  color: Colors.transparent,
-                  child: _emptyChairControl(localizations, dragging: true),
-                ),
-                childWhenDragging: Opacity(
-                  opacity: 0.35,
+              Tooltip(
+                message: localizations.text('empty_chair_drag_tooltip'),
+                child: Draggable<_SeatDropPayload>(
+                  data: const _SeatDropPayload.emptyChair(),
+                  onDragStarted: () => setState(() => _isDragging = true),
+                  onDragEnd: (_) => setState(() => _isDragging = false),
+                  feedback: Material(
+                    color: Colors.transparent,
+                    child: _emptyChairControl(localizations, dragging: true),
+                  ),
+                  childWhenDragging: Opacity(
+                    opacity: 0.35,
+                    child: _emptyChairControl(localizations),
+                  ),
                   child: _emptyChairControl(localizations),
                 ),
-                child: _emptyChairControl(localizations),
               ),
             if (!widget.readOnly)
               TextButton.icon(
@@ -1494,59 +1502,19 @@ class _TableFloorPlanPageState extends State<TableFloorPlanPage> {
                       ),
                     ),
                     if (hasSelection) ...[
-                      OutlinedButton.icon(
+                      IconButton(
                         onPressed: () => _applyFloorPlanSettingsToSelection(
                           rotationDegreesDelta: -15,
                         ),
                         icon: const Icon(Icons.rotate_left),
-                        label: Text(
-                          '${localizations.text('floor_plan_rotate_left')} ${localizations.text('floor_plan_rotate_15')}',
-                        ),
+                        tooltip: '${localizations.text('floor_plan_rotate_left')} ${localizations.text('floor_plan_rotate_15')}',
                       ),
-                      OutlinedButton.icon(
-                        onPressed: () => _applyFloorPlanSettingsToSelection(
-                          rotationDegreesDelta: -45,
-                        ),
-                        icon: const Icon(Icons.rotate_left),
-                        label: Text(
-                          '${localizations.text('floor_plan_rotate_left')} ${localizations.text('floor_plan_rotate_45')}',
-                        ),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: () => _applyFloorPlanSettingsToSelection(
-                          rotationDegreesDelta: -90,
-                        ),
-                        icon: const Icon(Icons.rotate_left),
-                        label: Text(
-                          '${localizations.text('floor_plan_rotate_left')} ${localizations.text('floor_plan_rotate_90')}',
-                        ),
-                      ),
-                      OutlinedButton.icon(
+                      IconButton(
                         onPressed: () => _applyFloorPlanSettingsToSelection(
                           rotationDegreesDelta: 15,
                         ),
                         icon: const Icon(Icons.rotate_right),
-                        label: Text(
-                          '${localizations.text('floor_plan_rotate_right')} ${localizations.text('floor_plan_rotate_15')}',
-                        ),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: () => _applyFloorPlanSettingsToSelection(
-                          rotationDegreesDelta: 45,
-                        ),
-                        icon: const Icon(Icons.rotate_right),
-                        label: Text(
-                          '${localizations.text('floor_plan_rotate_right')} ${localizations.text('floor_plan_rotate_45')}',
-                        ),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: () => _applyFloorPlanSettingsToSelection(
-                          rotationDegreesDelta: 90,
-                        ),
-                        icon: const Icon(Icons.rotate_right),
-                        label: Text(
-                          '${localizations.text('floor_plan_rotate_right')} ${localizations.text('floor_plan_rotate_90')}',
-                        ),
+                        tooltip: '${localizations.text('floor_plan_rotate_right')} ${localizations.text('floor_plan_rotate_15')}',
                       ),
                       Opacity(
                         opacity: canToggleShortSides ? 1 : 0.55,
