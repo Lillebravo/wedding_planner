@@ -448,6 +448,13 @@ class StorageService {
 
   static Future<void> saveGuests(String weddingId, List<Guest> guests) async {
     Map<String, String> idMapping = {};
+    final existingGuestIdsResponse = await supabase
+        .from('guests')
+        .select('id')
+        .eq('wedding_id', weddingId);
+    final existingGuestIds = <String>{
+      for (final item in existingGuestIdsResponse) item['id'].toString(),
+    };
 
     // 1. Spara gästerna och få tillbaka riktiga UUIDs
     for (var g in guests) {
@@ -492,6 +499,23 @@ class StorageService {
         idMapping[g.id] = realUuid;
         g.id = realUuid;
       }
+    }
+
+    final currentGuestIds = guests.map((g) => g.id).toSet();
+    final removedGuestIds = existingGuestIds.difference(currentGuestIds);
+
+    if (removedGuestIds.isNotEmpty) {
+      final removedGuestIdList = removedGuestIds.toList();
+
+      await supabase
+          .from('guest_relations')
+          .delete()
+          .inFilter('guest_id_1', removedGuestIdList);
+      await supabase
+          .from('guest_relations')
+          .delete()
+          .inFilter('guest_id_2', removedGuestIdList);
+      await supabase.from('guests').delete().inFilter('id', removedGuestIdList);
     }
 
     // 2. Mappa om alla relationer i minnet så att inga temporära strängar spökar

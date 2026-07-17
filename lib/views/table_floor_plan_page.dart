@@ -9,11 +9,8 @@ import 'package:flutter/rendering.dart';
 import '../models/guest_model.dart';
 import '../l10n/app_localizations.dart';
 import '../services/storage_service.dart';
-import '../widgets/app_dropdown_form_field.dart';
-import '../widgets/app_labeled_text_field.dart';
-import '../widgets/dialog_action_buttons.dart';
-import '../widgets/dialog_title_with_close.dart';
 import '../widgets/language_toggle_button.dart';
+import '../widgets/table_form_dialog.dart';
 
 class TableFloorPlanPage extends StatefulWidget {
   final String weddingId;
@@ -285,73 +282,56 @@ class _TableFloorPlanPageState extends State<TableFloorPlanPage> {
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) {
-          return AlertDialog(
-            title: DialogTitleWithClose(
-              titleText: localizations.text('create_table'),
-              onClose: () => Navigator.pop(dialogContext),
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                AppLabeledTextField(
-                  controller: nameCtrl,
-                  labelText: localizations.text('table_name'),
-                ),
-                AppLabeledTextField(
-                  controller: seatsCtrl,
-                  labelText: localizations.text('table_seats'),
-                  keyboardType: TextInputType.number,
-                ),
-                AppDropdownFormField<String>(
-                  initialValue: selectedShape,
-                  labelText: localizations.text('table_shape'),
-                  items: shapes
-                      .map(
-                        (shape) => DropdownMenuItem(
-                          value: shape['value'] as String,
-                          child: Text(localizations.text(shape['labelKey'] as String)),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (value) => setDialogState(() => selectedShape = value ?? selectedShape),
-                ),
-              ],
-            ),
-            actions: [
-              DialogConfirmButton(
-                label: localizations.text('save'),
-                onPressed: () async {
-                  final seats = int.tryParse(seatsCtrl.text.trim()) ?? 0;
-                  if (seats <= 0 || nameCtrl.text.trim().isEmpty) return;
+          Future<void> submitTableForm() async {
+            final seats = int.tryParse(seatsCtrl.text.trim()) ?? 0;
+            if (seats <= 0 || nameCtrl.text.trim().isEmpty) return;
 
-                  Navigator.pop(dialogContext);
-                  final newId = await StorageService.addTable(
-                    widget.weddingId,
-                    nameCtrl.text.trim(),
-                    seats,
-                    selectedShape,
-                  );
-                  if (newId.isEmpty) return;
+            Navigator.pop(dialogContext);
+            final newId = await StorageService.addTable(
+              widget.weddingId,
+              nameCtrl.text.trim(),
+              seats,
+              selectedShape,
+            );
+            if (newId.isEmpty) return;
 
-                  final newTable = {
-                    'id': newId,
-                    'name': nameCtrl.text.trim(),
-                    'seats': seats,
-                    'shape': selectedShape,
-                  };
-                  final resolvedPosition = _clampPosition(
-                    Offset(120 + (_tables.length * 40.0), 120 + (_tables.length * 28.0)),
-                    _tableVisualSize(newTable),
-                  );
+            final newTable = {
+              'id': newId,
+              'name': nameCtrl.text.trim(),
+              'seats': seats,
+              'shape': selectedShape,
+            };
+            final resolvedPosition = _clampPosition(
+              Offset(120 + (_tables.length * 40.0), 120 + (_tables.length * 28.0)),
+              _tableVisualSize(newTable),
+            );
 
-                  setState(() {
-                    _tables = [..._tables, newTable];
-                    _tablePositions[newId] = resolvedPosition;
-                  });
-                  await StorageService.saveTableLayout(widget.weddingId, _tablePositions);
-                },
-              ),
-            ],
+            setState(() {
+              _tables = [..._tables, newTable];
+              _tablePositions[newId] = resolvedPosition;
+            });
+            await StorageService.saveTableLayout(widget.weddingId, _tablePositions);
+          }
+
+          return TableFormDialog(
+            titleText: localizations.text('create_table'),
+            nameLabelText: localizations.text('table_name'),
+            seatsLabelText: localizations.text('table_seats'),
+            shapeLabelText: localizations.text('table_shape'),
+            saveLabelText: localizations.text('save'),
+            nameController: nameCtrl,
+            seatsController: seatsCtrl,
+            selectedShape: selectedShape,
+            shapeItems: shapes
+                .map(
+                  (shape) => DropdownMenuItem(
+                    value: shape['value'] as String,
+                    child: Text(localizations.text(shape['labelKey'] as String)),
+                  ),
+                )
+                .toList(),
+            onShapeChanged: (value) => setDialogState(() => selectedShape = value),
+            onSubmit: submitTableForm,
           );
         },
       ),
@@ -741,12 +721,6 @@ class _TableFloorPlanPageState extends State<TableFloorPlanPage> {
                     : const Icon(Icons.save),
                 label: Text(localizations.text('save')),
               ),
-            if (!widget.readOnly)
-              ElevatedButton.icon(
-                onPressed: () => _openTableFormDialog(),
-                icon: const Icon(Icons.add),
-                label: Text(localizations.text('add_table')),
-              ),
           ];
 
           return Column(
@@ -1109,9 +1083,25 @@ class _TableFloorPlanPageState extends State<TableFloorPlanPage> {
     }
 
     final localizations = AppLocalizationsScope.of(context);
+    final isCompact = MediaQuery.of(context).size.width < 760;
 
     return Scaffold(
       appBar: AppBar(title: Text(localizations.text('table_floor_plan_title'))),
+      floatingActionButton: widget.readOnly
+          ? null
+          : SafeArea(
+              child: isCompact
+                  ? FloatingActionButton.small(
+                      onPressed: () => _openTableFormDialog(),
+                      tooltip: localizations.text('add_table'),
+                      child: const Icon(Icons.add),
+                    )
+                  : FloatingActionButton(
+                      onPressed: () => _openTableFormDialog(),
+                      tooltip: localizations.text('add_table'),
+                      child: const Icon(Icons.add),
+                    ),
+            ),
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(

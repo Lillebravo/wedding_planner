@@ -13,12 +13,13 @@ import '../l10n/app_localizations.dart';
 import '../services/guest_pdf_export.dart';
 import '../services/seating_algorithm.dart';
 import '../services/storage_service.dart';
+import '../widgets/app_confirm_dialog.dart';
 import '../widgets/app_dropdown_form_field.dart';
-import '../widgets/app_labeled_text_field.dart';
 import '../widgets/app_search_field.dart';
 import '../widgets/dialog_action_buttons.dart';
 import '../widgets/dialog_title_with_close.dart';
 import '../widgets/language_toggle_button.dart';
+import '../widgets/table_form_dialog.dart';
 import 'table_floor_plan_page.dart';
 
 enum PlacementRuleId { friendAtTable, partnerAdjacent }
@@ -830,6 +831,7 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
   void _openTableFormDialog({Map<String, dynamic>? tableToEdit}) {
     final localizations = AppLocalizationsScope.of(context);
     final isEditing = tableToEdit != null;
+    bool isSubmitting = false;
     final nameCtrl = TextEditingController(
       text: isEditing
           ? tableToEdit['name']
@@ -847,6 +849,53 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
         builder: (context, setDialogState) {
           final int maxSeatsAllowed = int.tryParse(seatsCtrl.text) ?? 0;
           final bool isOverflown = currentAssigned.length > maxSeatsAllowed;
+          final bool canSubmit =
+              !isOverflown && nameCtrl.text.trim().isNotEmpty && maxSeatsAllowed > 0;
+
+          Future<void> submitTableForm() async {
+            if (!canSubmit || isSubmitting) return;
+            isSubmitting = true;
+
+            Navigator.of(dialogContext).pop();
+            if (isEditing) {
+              setState(() {
+                tableToEdit['name'] = nameCtrl.text.trim();
+                tableToEdit['seats'] = maxSeatsAllowed;
+                tableToEdit['shape'] = selectedShape;
+                tableToEdit['assigned'] = currentAssigned;
+                for (int i = 0; i < currentAssigned.length; i++) {
+                  _assignGuestToTable(currentAssigned[i], tableToEdit, i + 1);
+                }
+              });
+              await StorageService.updateTable(
+                tableToEdit['id'],
+                nameCtrl.text.trim(),
+                maxSeatsAllowed,
+                selectedShape,
+              );
+            } else {
+              final newId = await StorageService.addTable(
+                widget.weddingId,
+                nameCtrl.text.trim(),
+                maxSeatsAllowed,
+                selectedShape,
+              );
+              setState(() {
+                final newTable = {
+                  'id': newId,
+                  'name': nameCtrl.text.trim(),
+                  'seats': maxSeatsAllowed,
+                  'shape': selectedShape,
+                  'assigned': currentAssigned,
+                };
+                tables.add(newTable);
+                for (int i = 0; i < currentAssigned.length; i++) {
+                  _assignGuestToTable(currentAssigned[i], newTable, i + 1);
+                }
+              });
+            }
+            await StorageService.saveGuests(widget.weddingId, widget.guests);
+          }
 
           List<Guest> availableGuests = widget.guests.where((g) {
             return !currentAssigned.contains(g) &&
@@ -857,150 +906,93 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
                 );
           }).toList();
 
-          return AlertDialog(
-            title: DialogTitleWithClose(
-              titleText: localizations.text(isEditing ? 'edit_table' : 'create_table'),
-              onClose: () => Navigator.pop(dialogContext),
-            ),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  AppLabeledTextField(
-                    controller: nameCtrl,
-                    labelText: '${localizations.text('table_name')} *',
+          return TableFormDialog(
+            titleText: localizations.text(isEditing ? 'edit_table' : 'create_table'),
+            nameLabelText: '${localizations.text('table_name')} *',
+            seatsLabelText: '${localizations.text('table_seats')} *',
+            shapeLabelText: localizations.text('table_shape'),
+            saveLabelText: localizations.text('save'),
+            nameController: nameCtrl,
+            seatsController: seatsCtrl,
+            selectedShape: selectedShape,
+            shapeItems: ['Kvadrat', 'Rektangel', 'Cirkel', 'Oval']
+                .map(
+                  (s) => DropdownMenuItem(
+                    value: s,
+                    child: Text(_shapeLabel(localizations, s)),
                   ),
-                  AppLabeledTextField(
-                    controller: seatsCtrl,
-                    labelText: '${localizations.text('table_seats')} *',
-                    keyboardType: TextInputType.number,
-                    onChanged: (_) => setDialogState(() {}),
+                )
+                .toList(),
+            onShapeChanged: (value) => setDialogState(() => selectedShape = value),
+            onSeatsChanged: (_) => setDialogState(() {}),
+            onSubmit: submitTableForm,
+            canSubmit: canSubmit,
+            scrollable: true,
+            extraContent: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${localizations.text('seating_chart_assigned_guests')} (${currentAssigned.length} / $maxSeatsAllowed)',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: isOverflown ? Colors.red : Colors.black,
                   ),
-                  AppDropdownFormField<String>(
-                    initialValue: selectedShape,
-                    labelText: localizations.text('table_shape'),
-                    items: ['Kvadrat', 'Rektangel', 'Cirkel', 'Oval']
-                        .map(
-                          (s) => DropdownMenuItem(
-                            value: s,
-                            child: Text(_shapeLabel(localizations, s)),
+                ),
+                if (isOverflown) ...[
+                  Text(
+                    localizations.text('seating_chart_too_many_guests_warning'),
+                    style: const TextStyle(color: Colors.red, fontSize: 12),
+                  ),
+                ],
+                SizedBox(
+                  width: double.maxFinite,
+                  height: 120,
+                  child: currentAssigned.isEmpty
+                      ? Center(
+                          child: Text(
+                            localizations.text('table_empty'),
+                            style: const TextStyle(color: Colors.grey),
                           ),
                         )
+                      : ListView.builder(
+                          itemCount: currentAssigned.length,
+                          itemBuilder: (context, idx) {
+                            final g = currentAssigned[idx];
+                            return Container(
+                              decoration: BoxDecoration(
+                                border: Border.all(color: Colors.grey),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: ListTile(
+                                title: Text(g.fullName),
+                                dense: true,
+                                trailing: IconButton(
+                                  icon: const Icon(Icons.remove_circle, color: Colors.red),
+                                  onPressed: () => setDialogState(() => currentAssigned.remove(g)),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                ),
+                const Divider(),
+                if (currentAssigned.length < maxSeatsAllowed) ...[
+                  DropdownButton<Guest>(
+                    hint: Text(localizations.text('seating_chart_assign_directly')),
+                    isExpanded: true,
+                    items: availableGuests
+                        .map((g) => DropdownMenuItem(value: g, child: Text(g.fullName)))
                         .toList(),
-                    onChanged: (val) => setDialogState(() => selectedShape = val!),
+                    onChanged: (guest) {
+                      if (guest != null) {
+                        setDialogState(() => currentAssigned.add(guest));
+                      }
+                    },
                   ),
-                  const SizedBox(height: 16),
-                  Text(
-                    '${localizations.text('seating_chart_assigned_guests')} (${currentAssigned.length} / $maxSeatsAllowed)',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: isOverflown ? Colors.red : Colors.black,
-                    ),
-                  ),
-                  if (isOverflown) ...[
-                    Text(
-                      localizations.text('seating_chart_too_many_guests_warning'),
-                      style: const TextStyle(color: Colors.red, fontSize: 12),
-                    ),
-                  ],
-                  SizedBox(
-                    width: double.maxFinite,
-                    height: 120,
-                    child: currentAssigned.isEmpty
-                        ? Center(
-                            child: Text(
-                              localizations.text('table_empty'),
-                              style: const TextStyle(color: Colors.grey),
-                            ),
-                          )
-                        : ListView.builder(
-                            itemCount: currentAssigned.length,
-                            itemBuilder: (context, idx) {
-                              final g = currentAssigned[idx];
-                              return Container(
-                                decoration: BoxDecoration(
-                                  border: Border.all(color: Colors.grey),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: ListTile(
-                                  title: Text(g.fullName),
-                                  dense: true,
-                                  trailing: IconButton(
-                                    icon: const Icon(Icons.remove_circle, color: Colors.red),
-                                    onPressed: () => setDialogState(() => currentAssigned.remove(g)),
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                  ),
-                  const Divider(),
-                  if (currentAssigned.length < maxSeatsAllowed) ...[
-                    DropdownButton<Guest>(
-                      hint: Text(localizations.text('seating_chart_assign_directly')),
-                      isExpanded: true,
-                      items: availableGuests
-                          .map((g) => DropdownMenuItem(value: g, child: Text(g.fullName)))
-                          .toList(),
-                      onChanged: (guest) {
-                        if (guest != null) {
-                          setDialogState(() => currentAssigned.add(guest));
-                        }
-                      },
-                    ),
-                  ],
                 ],
-              ),
+              ],
             ),
-            actions: [
-              DialogConfirmButton(
-                label: localizations.text('save'),
-                onPressed: (isOverflown || nameCtrl.text.isEmpty || maxSeatsAllowed <= 0)
-                    ? null
-                    : () async {
-                        Navigator.of(dialogContext).pop();
-                        if (isEditing) {
-                          setState(() {
-                            tableToEdit['name'] = nameCtrl.text.trim();
-                            tableToEdit['seats'] = maxSeatsAllowed;
-                            tableToEdit['shape'] = selectedShape;
-                            tableToEdit['assigned'] = currentAssigned;
-                            for (int i = 0; i < currentAssigned.length; i++) {
-                              _assignGuestToTable(currentAssigned[i], tableToEdit, i + 1);
-                            }
-                          });
-                          await StorageService.updateTable(
-                            tableToEdit['id'],
-                            nameCtrl.text.trim(),
-                            maxSeatsAllowed,
-                            selectedShape,
-                          );
-                        } else {
-                          final newId = await StorageService.addTable(
-                            widget.weddingId,
-                            nameCtrl.text.trim(),
-                            maxSeatsAllowed,
-                            selectedShape,
-                          );
-                          setState(() {
-                            final newTable = {
-                              'id': newId,
-                              'name': nameCtrl.text.trim(),
-                              'seats': maxSeatsAllowed,
-                              'shape': selectedShape,
-                              'assigned': currentAssigned,
-                            };
-                            tables.add(newTable);
-                            for (int i = 0; i < currentAssigned.length; i++) {
-                              _assignGuestToTable(currentAssigned[i], newTable, i + 1);
-                            }
-                          });
-                        }
-                        await StorageService.saveGuests(widget.weddingId, widget.guests);
-                      },
-              ),
-            ],
           );
         },
       ),
@@ -1009,40 +1001,32 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
 
   void _confirmDeleteTable(Map<String, dynamic> table) {
     final localizations = AppLocalizationsScope.of(context);
-    showDialog(
+    showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: DialogTitleWithClose(
-          titleText: localizations.text('delete_table'),
-          onClose: () => Navigator.pop(dialogContext),
+      builder: (dialogContext) => AppConfirmDialog(
+        titleText: localizations.text('delete_table'),
+        contentText: localizations.text(
+          'seating_chart_delete_table_confirm',
+          values: {'name': '${table['name']}'},
         ),
-        content: Text(
-          localizations.text(
-            'seating_chart_delete_table_confirm',
-            values: {'name': '${table['name']}'},
-          ),
-        ),
-        actions: [
-          DialogConfirmButton(
-            label: localizations.text('delete'),
-            destructive: true,
-            onPressed: () async {
-              Navigator.of(dialogContext).pop();
-              setState(() {
-                List<Guest> assigned = table['assigned'] as List<Guest>;
-                for (var g in assigned) {
-                  g.tableId = null;
-                  g.seatNumber = null;
-                }
-                tables.removeWhere((t) => t['id'] == table['id']);
-              });
-              await StorageService.deleteTable(table['id']);
-              await StorageService.saveGuests(widget.weddingId, widget.guests);
-            },
-          ),
-        ],
+        confirmLabel: localizations.text('delete'),
+        cancelLabel: localizations.text('cancel'),
+        destructive: true,
       ),
-    );
+    ).then((shouldDelete) async {
+      if (shouldDelete != true || !mounted) return;
+
+      setState(() {
+        List<Guest> assigned = table['assigned'] as List<Guest>;
+        for (var g in assigned) {
+          g.tableId = null;
+          g.seatNumber = null;
+        }
+        tables.removeWhere((t) => t['id'] == table['id']);
+      });
+      await StorageService.deleteTable(table['id']);
+      await StorageService.saveGuests(widget.weddingId, widget.guests);
+    });
   }
 
   Future<void> _confirmClearSeatedGuests() async {
@@ -1053,23 +1037,12 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
 
     final shouldClear = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: DialogTitleWithClose(
-          titleText: localizations.text('seating_chart_clear_title'),
-          onClose: () => Navigator.pop(dialogContext),
-        ),
-        content: Text(localizations.text('seating_chart_clear_confirm')),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: Text(localizations.text('cancel')),
-          ),
-          DialogConfirmButton(
-            label: localizations.text('seating_chart_clear_action'),
-            destructive: true,
-            onPressed: () => Navigator.pop(dialogContext, true),
-          ),
-        ],
+      builder: (dialogContext) => AppConfirmDialog(
+        titleText: localizations.text('seating_chart_clear_title'),
+        contentText: localizations.text('seating_chart_clear_confirm'),
+        confirmLabel: localizations.text('seating_chart_clear_action'),
+        cancelLabel: localizations.text('cancel'),
+        destructive: true,
       ),
     );
 
@@ -1102,6 +1075,21 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
         ),
       );
     }
+  }
+
+  Future<void> _openFloorPlanAndRefresh() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => TableFloorPlanPage(weddingId: widget.weddingId),
+      ),
+    );
+
+    if (!mounted) return;
+    setState(() {
+      _isLoadingTables = true;
+    });
+    await _loadTables();
   }
 
   Widget _buildTablesPane() {
@@ -1805,14 +1793,7 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
                 ),
                 const SizedBox(width: 12),
                 TextButton.icon(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => TableFloorPlanPage(weddingId: widget.weddingId),
-                      ),
-                    );
-                  },
+                  onPressed: _openFloorPlanAndRefresh,
                   icon: const Icon(Icons.grid_on),
                   label: Text(localizations.text('seating_chart_open_floor_plan')),
                 ),
@@ -1881,29 +1862,28 @@ class _SeatingChartPageState extends State<SeatingChartPage> {
           IconButton(
             icon: const Icon(Icons.grid_on),
             tooltip: AppLocalizationsScope.of(context).text('table_floor_plan_title'),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => TableFloorPlanPage(weddingId: widget.weddingId),
-                ),
-              );
-            },
+            onPressed: _openFloorPlanAndRefresh,
           ),
           IconButton(
             icon: const Icon(Icons.delete_sweep),
             tooltip: AppLocalizationsScope.of(context).text('seating_chart_clear_seated'),
             onPressed: hasSeatedGuests ? _confirmClearSeatedGuests : null,
           ),
-          if (!isCompact)
-            const SizedBox(width: 8),
-          IconButton(
-            icon: const Icon(Icons.add_box),
-            tooltip: AppLocalizationsScope.of(context).text('add_table'),
-            onPressed: () => _openTableFormDialog(),
-          ),
           if (!isCompact) const SizedBox(width: 10),
         ],
+      ),
+      floatingActionButton: SafeArea(
+        child: isCompact
+            ? FloatingActionButton.small(
+                onPressed: () => _openTableFormDialog(),
+                tooltip: AppLocalizationsScope.of(context).text('add_table'),
+                child: const Icon(Icons.add),
+              )
+            : FloatingActionButton(
+                onPressed: () => _openTableFormDialog(),
+                tooltip: AppLocalizationsScope.of(context).text('add_table'),
+                child: const Icon(Icons.add),
+              ),
       ),
       body: isCompact
           ? Column(

@@ -12,6 +12,7 @@ import '../services/guest_pdf_export.dart';
 import '../services/storage_service.dart';
 import 'seating_chart_page.dart';
 import '../widgets/app_dropdown_form_field.dart';
+import '../widgets/app_confirm_dialog.dart';
 import '../widgets/app_labeled_text_field.dart';
 import '../widgets/app_search_field.dart';
 import '../widgets/dialog_action_buttons.dart';
@@ -61,7 +62,7 @@ class _GuestListPageState extends State<GuestListPage> {
     }
   }
 
-  void _syncToStorage() async {
+  Future<void> _syncToStorage() async {
     if (_activeWedding != null) {
       await StorageService.saveGuests(_activeWedding!.id, guests);
     }
@@ -122,6 +123,61 @@ class _GuestListPageState extends State<GuestListPage> {
                 firstNameCtrl.text.trim().isEmpty ||
                 lastNameCtrl.text.trim().isEmpty;
 
+            void submitGuestForm() {
+              if (isDuplicate || isFieldsEmpty) return;
+
+              setState(() {
+                if (isEditing) {
+                  guestToEdit.firstName = firstNameCtrl.text.trim();
+                  guestToEdit.lastName = lastNameCtrl.text.trim();
+                  guestToEdit.email = emailCtrl.text.trim().isEmpty
+                      ? null
+                      : emailCtrl.text.trim();
+                  guestToEdit.phoneNumber =
+                      phoneCtrl.text.trim().isEmpty
+                      ? null
+                      : phoneCtrl.text.trim();
+                  guestToEdit.dietaryRestrictions = _normalizeDietValues(dietValues);
+                  guestToEdit.title = selectedTitle;
+                } else {
+                  final newGuest = Guest(
+                    id: DateTime.now().millisecondsSinceEpoch
+                        .toString(),
+                    firstName: firstNameCtrl.text.trim(),
+                    lastName: lastNameCtrl.text.trim(),
+                    createdAt: DateTime.now().toUtc(),
+                    email: emailCtrl.text.trim().isEmpty
+                        ? null
+                        : emailCtrl.text.trim(),
+                    phoneNumber: phoneCtrl.text.trim().isEmpty
+                        ? null
+                        : phoneCtrl.text.trim(),
+                    dietaryRestrictions: _normalizeDietValues(dietValues),
+                    title: selectedTitle,
+                  );
+
+                  final hosts = guests
+                      .where(
+                        (g) =>
+                            g.title == GuestTitle.bride ||
+                            g.title == GuestTitle.groom,
+                      )
+                      .toList();
+                  for (var host in hosts) {
+                    newGuest.relations[host.id] =
+                        RelationType.friend;
+                    host.relations[newGuest.id] =
+                        RelationType.friend;
+                  }
+
+                  guests.add(newGuest);
+                }
+              });
+
+              _syncToStorage();
+              Navigator.pop(dialogContext);
+            }
+
             return AlertDialog(
               title: DialogTitleWithClose(
                 titleText: isEditing
@@ -137,19 +193,23 @@ class _GuestListPageState extends State<GuestListPage> {
                       controller: firstNameCtrl,
                       labelText: '${localizations.text('first_name')} *',
                       onChanged: (_) => checkDuplicate(),
+                      onSubmitted: (_) => submitGuestForm(),
                     ),
                     AppLabeledTextField(
                       controller: lastNameCtrl,
                       labelText: '${localizations.text('last_name')} *',
                       onChanged: (_) => checkDuplicate(),
+                      onSubmitted: (_) => submitGuestForm(),
                     ),
                     AppLabeledTextField(
                       controller: emailCtrl,
                       labelText: localizations.text('email_optional'),
+                      onSubmitted: (_) => submitGuestForm(),
                     ),
                     AppLabeledTextField(
                       controller: phoneCtrl,
                       labelText: localizations.text('phone_optional'),
+                      onSubmitted: (_) => submitGuestForm(),
                     ),
                     const SizedBox(height: 12),
                     PresetOptionsInput(
@@ -203,57 +263,7 @@ class _GuestListPageState extends State<GuestListPage> {
                       : localizations.text('add'),
                   onPressed: (isDuplicate || isFieldsEmpty)
                       ? null
-                      : () {
-                          setState(() {
-                            if (isEditing) {
-                              guestToEdit.firstName = firstNameCtrl.text.trim();
-                              guestToEdit.lastName = lastNameCtrl.text.trim();
-                              guestToEdit.email = emailCtrl.text.trim().isEmpty
-                                  ? null
-                                  : emailCtrl.text.trim();
-                              guestToEdit.phoneNumber =
-                                  phoneCtrl.text.trim().isEmpty
-                                  ? null
-                                  : phoneCtrl.text.trim();
-                              guestToEdit.dietaryRestrictions = _normalizeDietValues(dietValues);
-                              guestToEdit.title = selectedTitle;
-                            } else {
-                              final newGuest = Guest(
-                                id: DateTime.now().millisecondsSinceEpoch
-                                    .toString(),
-                                firstName: firstNameCtrl.text.trim(),
-                                lastName: lastNameCtrl.text.trim(),
-                                createdAt: DateTime.now().toUtc(),
-                                email: emailCtrl.text.trim().isEmpty
-                                    ? null
-                                    : emailCtrl.text.trim(),
-                                phoneNumber: phoneCtrl.text.trim().isEmpty
-                                    ? null
-                                    : phoneCtrl.text.trim(),
-                                dietaryRestrictions: _normalizeDietValues(dietValues),
-                                title: selectedTitle,
-                              );
-
-                              final hosts = guests
-                                  .where(
-                                    (g) =>
-                                        g.title == GuestTitle.bride ||
-                                        g.title == GuestTitle.groom,
-                                  )
-                                  .toList();
-                              for (var host in hosts) {
-                                newGuest.relations[host.id] =
-                                    RelationType.friend;
-                                host.relations[newGuest.id] =
-                                    RelationType.friend;
-                              }
-
-                              guests.add(newGuest);
-                            }
-                          });
-                          _syncToStorage();
-                          Navigator.pop(dialogContext);
-                        },
+                      : submitGuestForm,
                 ),
               ],
             );
@@ -272,34 +282,27 @@ class _GuestListPageState extends State<GuestListPage> {
       return;
     }
 
-    showDialog(
+    showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: DialogTitleWithClose(
-          titleText: localizations.text('delete_guest_title'),
-          onClose: () => Navigator.pop(dialogContext),
-        ),
-        content: Text(
-          localizations.text('delete_guest_confirm', values: {'name': guest.fullName}),
-        ),
-        actions: [
-          DialogConfirmButton(
-            label: localizations.text('delete'),
-            destructive: true,
-            onPressed: () {
-              setState(() {
-                guests.removeWhere((g) => g.id == guest.id);
-                for (var other in guests) {
-                  other.relations.remove(guest.id);
-                }
-              });
-              _syncToStorage();
-              Navigator.pop(dialogContext);
-            },
-          ),
-        ],
+      builder: (dialogContext) => AppConfirmDialog(
+        titleText: localizations.text('delete_guest_title'),
+        contentText: localizations.text('delete_guest_confirm', values: {'name': guest.fullName}),
+        confirmLabel: localizations.text('delete'),
+        cancelLabel: localizations.text('cancel'),
+        destructive: true,
       ),
-    );
+    ).then((shouldDelete) async {
+      if (shouldDelete != true || !mounted) return;
+
+      setState(() {
+        guests.removeWhere((g) => g.id == guest.id);
+        for (var other in guests) {
+          other.relations.remove(guest.id);
+        }
+      });
+
+      await _syncToStorage();
+    });
   }
 
   bool _isHost(Guest guest) {
@@ -658,7 +661,8 @@ class _GuestListPageState extends State<GuestListPage> {
             onPressed: _exportDietaryGuestsAsPdf,
           ),
           IconButton(
-            icon: const Icon(Icons.chair_alt),
+            icon: const Icon(Icons.table_restaurant_rounded),
+            tooltip: localizations.text('seating_chart_title'),
             onPressed: () {
               if (_activeWedding != null) {
                 // Säkerställ att bröllopet är laddat

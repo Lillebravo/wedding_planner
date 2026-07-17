@@ -4,6 +4,7 @@ class AppLabeledTextField extends StatelessWidget {
   final TextEditingController controller;
   final String labelText;
   final ValueChanged<String>? onChanged;
+  final ValueChanged<String>? onSubmitted;
   final TextInputType? keyboardType;
 
   const AppLabeledTextField({
@@ -11,6 +12,7 @@ class AppLabeledTextField extends StatelessWidget {
     required this.controller,
     required this.labelText,
     this.onChanged,
+    this.onSubmitted,
     this.keyboardType,
   });
 
@@ -19,6 +21,7 @@ class AppLabeledTextField extends StatelessWidget {
     return TextField(
       controller: controller,
       onChanged: onChanged,
+      onSubmitted: onSubmitted,
       keyboardType: keyboardType,
       decoration: InputDecoration(labelText: labelText),
     );

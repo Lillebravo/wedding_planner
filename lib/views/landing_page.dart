@@ -8,6 +8,7 @@ import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import '../models/wedding_model.dart';
 import '../l10n/app_localizations.dart';
 import '../services/storage_service.dart';
+import '../widgets/app_confirm_dialog.dart';
 import '../widgets/app_labeled_text_field.dart';
 import '../widgets/date_time_picker_buttons.dart';
 import '../widgets/dialog_action_buttons.dart';
@@ -216,6 +217,13 @@ class _LandingPageState extends State<LandingPage> {
 
     final fallbackText = localizations.text(fallbackKey);
     return fallbackText == fallbackKey ? text : fallbackText;
+  }
+
+  Widget _dialogWithEnterSubmit({
+    required Widget child,
+    required VoidCallback? onSubmit,
+  }) {
+    return DialogEnterSubmit(onSubmit: onSubmit, child: child);
   }
 
   String _heroTextVisibilityLabel(AppLocalizationsController localizations) {
@@ -1199,18 +1207,11 @@ class _LandingPageState extends State<LandingPage> {
                                     onTap: () async {
                                       final shouldDelete = await showDialog<bool>(
                                         context: dialogContext,
-                                        builder: (confirmContext) => AlertDialog(
-                                          title: DialogTitleWithClose(
-                                            titleText: localizations.text('landing_cover_delete_title'),
-                                            onClose: () => Navigator.pop(confirmContext),
-                                          ),
-                                          content: Text(localizations.text('landing_cover_delete_confirm')),
-                                          actions: [
-                                            DialogConfirmButton(
-                                              label: localizations.text('yes'),
-                                              onPressed: () => Navigator.pop(confirmContext, true),
-                                            ),
-                                          ],
+                                        builder: (confirmContext) => AppConfirmDialog(
+                                          titleText: localizations.text('landing_cover_delete_title'),
+                                          contentText: localizations.text('landing_cover_delete_confirm'),
+                                          confirmLabel: localizations.text('yes'),
+                                          cancelLabel: localizations.text('cancel'),
                                         ),
                                       );
 
@@ -1314,29 +1315,32 @@ class _LandingPageState extends State<LandingPage> {
 
     final shouldSave = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: DialogTitleWithClose(
-          titleText: localizations.text('landing_cover_color_title'),
-          onClose: () => Navigator.pop(dialogContext),
-        ),
-        content: SingleChildScrollView(
-          child: ColorPicker(
-            pickerColor: pickedColor,
-            onColorChanged: (color) => pickedColor = color,
-            colorPickerWidth: 300,
-            pickerAreaHeightPercent: 0.7,
-            enableAlpha: false,
-            displayThumbColor: true,
-            paletteType: PaletteType.hsvWithHue,
-            labelTypes: const [],
+      builder: (dialogContext) => _dialogWithEnterSubmit(
+        onSubmit: () => Navigator.pop(dialogContext, true),
+        child: AlertDialog(
+          title: DialogTitleWithClose(
+            titleText: localizations.text('landing_cover_color_title'),
+            onClose: () => Navigator.pop(dialogContext),
           ),
-        ),
-        actions: [
-          DialogConfirmButton(
-            label: localizations.text('save'),
-            onPressed: () => Navigator.pop(dialogContext, true),
+          content: SingleChildScrollView(
+            child: ColorPicker(
+              pickerColor: pickedColor,
+              onColorChanged: (color) => pickedColor = color,
+              colorPickerWidth: 300,
+              pickerAreaHeightPercent: 0.7,
+              enableAlpha: false,
+              displayThumbColor: true,
+              paletteType: PaletteType.hsvWithHue,
+              labelTypes: const [],
+            ),
           ),
-        ],
+          actions: [
+            DialogConfirmButton(
+              label: localizations.text('save'),
+              onPressed: () => Navigator.pop(dialogContext, true),
+            ),
+          ],
+        ),
       ),
     );
 
@@ -1407,83 +1411,90 @@ class _LandingPageState extends State<LandingPage> {
     var showItinerary = _wedding!.showItinerary;
     var showHeroText = _wedding!.showHeroText;
 
+    Future<void> submitVisibilityDialog(BuildContext ctx) async {
+      setState(() => _isLoading = true);
+      Navigator.pop(ctx);
+
+      try {
+        final updatedWedding = _currentWeddingWith(
+          showMeetCouple: showMeetCouple,
+          showCountdown: showCountdown,
+          showDetails: showDetails,
+          showItinerary: showItinerary,
+          showHeroText: showHeroText,
+        );
+        await _saveWeddingAndRefresh(updatedWedding);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(localizations.text('landing_widgets_visibility_saved')),
+          ),
+        );
+      } catch (e) {
+        if (!mounted) return;
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              localizations.text('error_with_message', values: {'error': '$e'}),
+            ),
+          ),
+        );
+      }
+    }
+
     await showDialog<void>(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: DialogTitleWithClose(
-            titleText: localizations.text('landing_widgets_visibility_title'),
-            onClose: () => Navigator.pop(ctx),
-          ),
-          content: SizedBox(
-            width: 420,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SwitchListTile.adaptive(
-                  value: showHeroText,
-                  title: Text(_heroTextVisibilityLabel(localizations)),
-                  onChanged: (value) => setDialogState(() => showHeroText = value),
-                ),
-                SwitchListTile.adaptive(
-                  value: showMeetCouple,
-                  title: Text(localizations.text('landing_widget_meet_couple')),
-                  onChanged: (value) => setDialogState(() => showMeetCouple = value),
-                ),
-                SwitchListTile.adaptive(
-                  value: showCountdown,
-                  title: Text(localizations.text('landing_widget_countdown')),
-                  onChanged: (value) => setDialogState(() => showCountdown = value),
-                ),
-                SwitchListTile.adaptive(
-                  value: showDetails,
-                  title: Text(localizations.text('landing_widget_details')),
-                  onChanged: (value) => setDialogState(() => showDetails = value),
-                ),
-                SwitchListTile.adaptive(
-                  value: showItinerary,
-                  title: Text(localizations.text('landing_widget_itinerary')),
-                  onChanged: (value) => setDialogState(() => showItinerary = value),
-                ),
-              ],
+        builder: (context, setDialogState) => _dialogWithEnterSubmit(
+          onSubmit: () {
+            submitVisibilityDialog(ctx);
+          },
+          child: AlertDialog(
+            title: DialogTitleWithClose(
+              titleText: localizations.text('landing_widgets_visibility_title'),
+              onClose: () => Navigator.pop(ctx),
             ),
-          ),
-          actions: [
-            DialogConfirmButton(
-              label: localizations.text('save'),
-              onPressed: () async {
-                setState(() => _isLoading = true);
-                Navigator.pop(ctx);
-
-                try {
-                  final updatedWedding = _currentWeddingWith(
-                    showMeetCouple: showMeetCouple,
-                    showCountdown: showCountdown,
-                    showDetails: showDetails,
-                    showItinerary: showItinerary,
-                    showHeroText: showHeroText,
-                  );
-                  await _saveWeddingAndRefresh(updatedWedding);
-                  if (!mounted) return;
-                  ScaffoldMessenger.of(this.context).showSnackBar(
-                    SnackBar(
-                      content: Text(localizations.text('landing_widgets_visibility_saved')),
-                    ),
-                  );
-                } catch (e) {
-                  if (!mounted) return;
-                  setState(() => _isLoading = false);
-                  ScaffoldMessenger.of(this.context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        localizations.text('error_with_message', values: {'error': '$e'}),
-                      ),
-                    ),
-                  );
-                }
-              },
+            content: SizedBox(
+              width: 420,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SwitchListTile.adaptive(
+                    value: showHeroText,
+                    title: Text(_heroTextVisibilityLabel(localizations)),
+                    onChanged: (value) => setDialogState(() => showHeroText = value),
+                  ),
+                  SwitchListTile.adaptive(
+                    value: showMeetCouple,
+                    title: Text(localizations.text('landing_widget_meet_couple')),
+                    onChanged: (value) => setDialogState(() => showMeetCouple = value),
+                  ),
+                  SwitchListTile.adaptive(
+                    value: showCountdown,
+                    title: Text(localizations.text('landing_widget_countdown')),
+                    onChanged: (value) => setDialogState(() => showCountdown = value),
+                  ),
+                  SwitchListTile.adaptive(
+                    value: showDetails,
+                    title: Text(localizations.text('landing_widget_details')),
+                    onChanged: (value) => setDialogState(() => showDetails = value),
+                  ),
+                  SwitchListTile.adaptive(
+                    value: showItinerary,
+                    title: Text(localizations.text('landing_widget_itinerary')),
+                    onChanged: (value) => setDialogState(() => showItinerary = value),
+                  ),
+                ],
+              ),
             ),
-          ],
+            actions: [
+              DialogConfirmButton(
+                label: localizations.text('save'),
+                onPressed: () => submitVisibilityDialog(ctx),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1671,12 +1682,45 @@ class _LandingPageState extends State<LandingPage> {
   Future<void> _openCoupleProfileDialog() async {
     if (_wedding == null) return;
     final localizations = AppLocalizationsScope.of(context);
+    bool isSubmitting = false;
     final partner1DescriptionController = TextEditingController(
       text: _wedding!.partner1Description,
     );
     final partner2DescriptionController = TextEditingController(
       text: _wedding!.partner2Description,
     );
+
+    Future<void> submitCoupleDialog(BuildContext ctx) async {
+      if (isSubmitting) return;
+      isSubmitting = true;
+
+      Navigator.pop(ctx);
+      if (mounted) {
+        setState(() => _isLoading = true);
+      }
+
+      try {
+        final updatedWedding = _currentWeddingWith(
+          partner1Description: partner1DescriptionController.text.trim(),
+          partner2Description: partner2DescriptionController.text.trim(),
+        );
+        await _saveWeddingAndRefresh(updatedWedding);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(localizations.text('landing_details_updated'))),
+        );
+      } catch (e) {
+        if (!mounted) return;
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              localizations.text('error_with_message', values: {'error': '$e'}),
+            ),
+          ),
+        );
+      }
+    }
 
     await showDialog<void>(
       context: context,
@@ -1711,6 +1755,7 @@ class _LandingPageState extends State<LandingPage> {
                 AppLabeledTextField(
                   controller: partner1DescriptionController,
                   labelText: localizations.text('landing_partner_1_description'),
+                  onSubmitted: (_) => submitCoupleDialog(ctx),
                 ),
                 const SizedBox(height: 12),
                 ListTile(
@@ -1733,6 +1778,7 @@ class _LandingPageState extends State<LandingPage> {
                 AppLabeledTextField(
                   controller: partner2DescriptionController,
                   labelText: localizations.text('landing_partner_2_description'),
+                  onSubmitted: (_) => submitCoupleDialog(ctx),
                 ),
               ],
             ),
@@ -1741,39 +1787,11 @@ class _LandingPageState extends State<LandingPage> {
         actions: [
           DialogConfirmButton(
             label: localizations.text('save'),
-            onPressed: () async {
-              setState(() => _isLoading = true);
-              Navigator.pop(ctx);
-
-              try {
-                final updatedWedding = _currentWeddingWith(
-                  partner1Description: partner1DescriptionController.text.trim(),
-                  partner2Description: partner2DescriptionController.text.trim(),
-                );
-                await _saveWeddingAndRefresh(updatedWedding);
-                if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text(localizations.text('landing_details_updated'))),
-                );
-              } catch (e) {
-                if (!mounted) return;
-                setState(() => _isLoading = false);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      localizations.text('error_with_message', values: {'error': '$e'}),
-                    ),
-                  ),
-                );
-              }
-            },
+            onPressed: () => submitCoupleDialog(ctx),
           ),
         ],
       ),
     );
-
-    partner1DescriptionController.dispose();
-    partner2DescriptionController.dispose();
   }
 
   // Den stora inställningsmenyn för Bröllopet
@@ -1792,6 +1810,43 @@ class _LandingPageState extends State<LandingPage> {
         hour: int.parse(parts[0]),
         minute: int.parse(parts[1]),
       );
+    }
+
+    Future<void> submitSettingsDialog(BuildContext ctx) async {
+      final navigator = Navigator.of(ctx);
+      final messenger = ScaffoldMessenger.of(context);
+
+      final updatedWedding = _currentWeddingWith(
+        partner1: p1Ctrl.text.trim(),
+        partner2: p2Ctrl.text.trim(),
+        dateStr: selectedDate != null
+            ? formatIsoDate(selectedDate!)
+            : localizations.text('not_set'),
+        timeStr: selectedTime != null
+            ? formatHHmm(selectedTime!)
+            : localizations.text('not_set'),
+        churchAddress: churchCtrl.text.trim(),
+        venueAddress: venueCtrl.text.trim(),
+      );
+
+      setState(() => _isLoading = true);
+      navigator.pop();
+
+      try {
+        await _saveWeddingAndRefresh(updatedWedding);
+        messenger.showSnackBar(
+          SnackBar(content: Text(localizations.text('landing_details_updated'))),
+        );
+      } catch (e) {
+        setState(() => _isLoading = false);
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(
+              localizations.text('error_with_message', values: {'error': '$e'}),
+            ),
+          ),
+        );
+      }
     }
 
     showDialog(
@@ -1844,10 +1899,12 @@ class _LandingPageState extends State<LandingPage> {
                   AppLabeledTextField(
                     controller: p1Ctrl,
                     labelText: localizations.text('landing_partner_1'),
+                    onSubmitted: (_) => submitSettingsDialog(ctx),
                   ),
                   AppLabeledTextField(
                     controller: p2Ctrl,
                     labelText: localizations.text('landing_partner_2'),
+                    onSubmitted: (_) => submitSettingsDialog(ctx),
                   ),
                   const SizedBox(height: 16),
                   Row(
@@ -1881,10 +1938,12 @@ class _LandingPageState extends State<LandingPage> {
                   AppLabeledTextField(
                     controller: churchCtrl,
                     labelText: localizations.text('landing_ceremony_address'),
+                    onSubmitted: (_) => submitSettingsDialog(ctx),
                   ),
                   AppLabeledTextField(
                     controller: venueCtrl,
                     labelText: localizations.text('landing_venue_address'),
+                    onSubmitted: (_) => submitSettingsDialog(ctx),
                   ),
                 ],
               ),
@@ -1899,42 +1958,7 @@ class _LandingPageState extends State<LandingPage> {
               ),
               DialogConfirmButton(
                 label: localizations.text('save'),
-                onPressed: () async {
-                  final navigator = Navigator.of(ctx);
-                  final messenger = ScaffoldMessenger.of(context);
-
-                  final updatedWedding = _currentWeddingWith(
-                    partner1: p1Ctrl.text.trim(),
-                    partner2: p2Ctrl.text.trim(),
-                    dateStr: selectedDate != null
-                        ? formatIsoDate(selectedDate!)
-                        : localizations.text('not_set'),
-                    timeStr: selectedTime != null
-                        ? formatHHmm(selectedTime!)
-                        : localizations.text('not_set'),
-                    churchAddress: churchCtrl.text.trim(),
-                    venueAddress: venueCtrl.text.trim(),
-                  );
-
-                  setState(() => _isLoading = true);
-                  navigator.pop();
-
-                  try {
-                    await _saveWeddingAndRefresh(updatedWedding);
-                    messenger.showSnackBar(
-                      SnackBar(content: Text(localizations.text('landing_details_updated'))),
-                    );
-                  } catch (e) {
-                    setState(() => _isLoading = false);
-                    messenger.showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          localizations.text('error_with_message', values: {'error': '$e'}),
-                        ),
-                      ),
-                    );
-                  }
-                },
+                onPressed: () => submitSettingsDialog(ctx),
               ),
             ],
           );
@@ -1966,6 +1990,22 @@ class _LandingPageState extends State<LandingPage> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setDialogState) {
+          Future<void> submitItineraryDialog() async {
+            final nav = Navigator.of(ctx);
+            final updatedWedding = _currentWeddingWith(
+              itinerary: tempItinerary,
+            );
+
+            setState(() => _isLoading = true);
+            nav.pop();
+
+            try {
+              await _saveWeddingAndRefresh(updatedWedding);
+            } catch (e) {
+              setState(() => _isLoading = false);
+            }
+          }
+
           Future<void> openEditEventDialog(int index) async {
             final existingEvent = tempItinerary[index];
             List<String> selectedTitle = <String>[
@@ -1982,45 +2022,48 @@ class _LandingPageState extends State<LandingPage> {
             final shouldSave = await showDialog<bool>(
               context: ctx,
               builder: (editCtx) => StatefulBuilder(
-                builder: (context, setEditState) => AlertDialog(
-                  title: DialogTitleWithClose(
-                    titleText: localizations.text('landing_event_edit_title'),
-                    onClose: () => Navigator.pop(editCtx),
-                  ),
-                  content: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      TimePickerOutlinedButton(
-                        selectedTime: selectedTime,
-                        pickTimeLabel: localizations.text('pick_time'),
-                        initialTime: selectedTime,
-                        onPicked: (picked) {
-                          setEditState(() => selectedTime = picked);
-                        },
-                      ),
-                      const SizedBox(height: 12),
-                      PresetOptionsInput(
-                        labelText: localizations.text('landing_event_label'),
-                        hintText: localizations.text('preset_custom_hint'),
-                        options: _itineraryCategoryKeys
-                            .map((key) => localizations.text(key))
-                            .toList(),
-                        selectedValues: selectedTitle,
-                        onChanged: (values) {
-                          setEditState(() {
-                            selectedTitle = values;
-                          });
-                        },
-                        multiSelect: false,
+                builder: (context, setEditState) => _dialogWithEnterSubmit(
+                  onSubmit: () => Navigator.pop(editCtx, true),
+                  child: AlertDialog(
+                    title: DialogTitleWithClose(
+                      titleText: localizations.text('landing_event_edit_title'),
+                      onClose: () => Navigator.pop(editCtx),
+                    ),
+                    content: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        TimePickerOutlinedButton(
+                          selectedTime: selectedTime,
+                          pickTimeLabel: localizations.text('pick_time'),
+                          initialTime: selectedTime,
+                          onPicked: (picked) {
+                            setEditState(() => selectedTime = picked);
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        PresetOptionsInput(
+                          labelText: localizations.text('landing_event_label'),
+                          hintText: localizations.text('preset_custom_hint'),
+                          options: _itineraryCategoryKeys
+                              .map((key) => localizations.text(key))
+                              .toList(),
+                          selectedValues: selectedTitle,
+                          onChanged: (values) {
+                            setEditState(() {
+                              selectedTitle = values;
+                            });
+                          },
+                          multiSelect: false,
+                        ),
+                      ],
+                    ),
+                    actions: [
+                      DialogConfirmButton(
+                        label: localizations.text('save'),
+                        onPressed: () => Navigator.pop(editCtx, true),
                       ),
                     ],
                   ),
-                  actions: [
-                    DialogConfirmButton(
-                      label: localizations.text('save'),
-                      onPressed: () => Navigator.pop(editCtx, true),
-                    ),
-                  ],
                 ),
               ),
             );
@@ -2056,161 +2099,158 @@ class _LandingPageState extends State<LandingPage> {
             TimeOfDay? eventTime;
             List<String> selectedCategory = <String>[];
 
+            void submitAddEvent(BuildContext addCtx) {
+              if (eventTime == null || selectedCategory.isEmpty) return;
+
+              final rawChoice =
+                  selectedCategory.isEmpty ? '' : selectedCategory.first;
+              if (rawChoice.isNotEmpty) {
+                final mappedKey =
+                    localizations.keyForValue(
+                      rawChoice,
+                      candidateKeys: _itineraryCategoryKeys,
+                    ) ??
+                    '';
+                final isPreset = mappedKey.isNotEmpty;
+                setDialogState(() {
+                  tempItinerary.add({
+                    'time': formatHHmm(eventTime!),
+                    if (isPreset) 'categoryKey': mappedKey,
+                    'title': isPreset ? '' : rawChoice,
+                  });
+                  tempItinerary.sort(
+                    (a, b) => a['time'].toString().compareTo(
+                      b['time'].toString(),
+                    ),
+                  );
+                });
+                Navigator.pop(addCtx);
+              }
+            }
+
             showDialog(
               context: ctx,
               builder: (addCtx) => StatefulBuilder(
                 builder: (context, setAddState) {
-                  return AlertDialog(
-                    title: DialogTitleWithClose(
-                      titleText: localizations.text('landing_event_add_title'),
-                      onClose: () => Navigator.pop(addCtx),
-                    ),
-                    content: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                          TimePickerOutlinedButton(
-                            selectedTime: eventTime,
-                            pickTimeLabel: localizations.text('pick_time'),
-                            required: true,
-                            initialTime: const TimeOfDay(hour: 15, minute: 0),
-                            onPicked: (picked) {
-                              setAddState(() => eventTime = picked);
+                  return _dialogWithEnterSubmit(
+                    onSubmit: eventTime == null || selectedCategory.isEmpty
+                        ? null
+                        : () => submitAddEvent(addCtx),
+                    child: AlertDialog(
+                      title: DialogTitleWithClose(
+                        titleText: localizations.text('landing_event_add_title'),
+                        onClose: () => Navigator.pop(addCtx),
+                      ),
+                      content: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                            TimePickerOutlinedButton(
+                              selectedTime: eventTime,
+                              pickTimeLabel: localizations.text('pick_time'),
+                              required: true,
+                              initialTime: const TimeOfDay(hour: 15, minute: 0),
+                              onPicked: (picked) {
+                                setAddState(() => eventTime = picked);
+                              },
+                          ),
+                          const SizedBox(height: 16),
+                          PresetOptionsInput(
+                            labelText: localizations.text('landing_event_category'),
+                            hintText: localizations.text('preset_custom_hint'),
+                            options: _itineraryCategoryKeys
+                                .map((key) => localizations.text(key))
+                                .toList(),
+                            selectedValues: selectedCategory,
+                            onChanged: (values) {
+                              setAddState(() {
+                                if (values.isEmpty) {
+                                  selectedCategory = <String>[];
+                                  return;
+                                }
+                                selectedCategory = <String>[values.first];
+                              });
                             },
-                        ),
-                        const SizedBox(height: 16),
-                        PresetOptionsInput(
-                          labelText: localizations.text('landing_event_category'),
-                          hintText: localizations.text('preset_custom_hint'),
-                          options: _itineraryCategoryKeys
-                              .map((key) => localizations.text(key))
-                              .toList(),
-                          selectedValues: selectedCategory,
-                          onChanged: (values) {
-                            setAddState(() {
-                              if (values.isEmpty) {
-                                selectedCategory = <String>[];
-                                return;
-                              }
-                              selectedCategory = <String>[values.first];
-                            });
-                          },
-                          multiSelect: false,
+                            multiSelect: false,
+                          ),
+                        ],
+                      ),
+                      actions: [
+                        DialogConfirmButton(
+                          label: localizations.text('add'),
+                          onPressed: eventTime == null || selectedCategory.isEmpty
+                              ? null
+                              : () => submitAddEvent(addCtx),
                         ),
                       ],
                     ),
-                    actions: [
-                      DialogConfirmButton(
-                        label: localizations.text('add'),
-                        onPressed: eventTime == null || selectedCategory.isEmpty
-                            ? null
-                            : () {
-                                final rawChoice =
-                                    selectedCategory.isEmpty ? '' : selectedCategory.first;
-                                if (rawChoice.isNotEmpty) {
-                                  final mappedKey =
-                                      localizations.keyForValue(
-                                        rawChoice,
-                                        candidateKeys: _itineraryCategoryKeys,
-                                      ) ??
-                                      '';
-                                  final isPreset = mappedKey.isNotEmpty;
-                                  setDialogState(() {
-                                    tempItinerary.add({
-                                      'time': formatHHmm(eventTime!),
-                                      if (isPreset) 'categoryKey': mappedKey,
-                                      'title': isPreset ? '' : rawChoice,
-                                    });
-                                    // Sortera listan på tid (sträng-sortering funkar bra på HH:MM)
-                                    tempItinerary.sort(
-                                      (a, b) => a['time'].toString().compareTo(
-                                        b['time'].toString(),
-                                      ),
-                                    );
-                                  });
-                                  Navigator.pop(addCtx);
-                                }
-                              },
-                      ),
-                    ],
                   );
                 },
               ),
             );
           }
 
-          return AlertDialog(
-            title: DialogTitleWithClose(
-              titleText: localizations.text('landing_itinerary_manage_title'),
-              onClose: () => Navigator.pop(ctx),
-            ),
-            content: SizedBox(
-              width: double.maxFinite,
-              height: 300,
-              child: tempItinerary.isEmpty
-                  ? Center(
-                      child: Text(
-                        localizations.text('landing_itinerary_empty'),
-                        style: const TextStyle(color: Colors.grey),
-                      ),
-                    )
-                  : ListView.builder(
-                      itemCount: tempItinerary.length,
-                      itemBuilder: (context, i) {
-                        final event = tempItinerary[i];
-                        return ListTile(
-                          leading: Text(
-                            event['time'] ?? '',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
+          return _dialogWithEnterSubmit(
+            onSubmit: submitItineraryDialog,
+            child: AlertDialog(
+              title: DialogTitleWithClose(
+                titleText: localizations.text('landing_itinerary_manage_title'),
+                onClose: () => Navigator.pop(ctx),
+              ),
+              content: SizedBox(
+                width: double.maxFinite,
+                height: 300,
+                child: tempItinerary.isEmpty
+                    ? Center(
+                        child: Text(
+                          localizations.text('landing_itinerary_empty'),
+                          style: const TextStyle(color: Colors.grey),
+                        ),
+                      )
+                    : ListView.builder(
+                        itemCount: tempItinerary.length,
+                        itemBuilder: (context, i) {
+                          final event = tempItinerary[i];
+                          return ListTile(
+                            leading: Text(
+                              event['time'] ?? '',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
                             ),
-                          ),
-                          title: Text(_itineraryEventTitle(event, localizations)),
-                          trailing: Wrap(
-                            spacing: 4,
-                            children: [
-                              IconButton(
-                                icon: const Icon(Icons.edit, color: Colors.blueGrey),
-                                tooltip: localizations.text('edit'),
-                                onPressed: () => openEditEventDialog(i),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.delete, color: Colors.red),
-                                tooltip: localizations.text('delete'),
-                                onPressed: () => setDialogState(
-                                  () => tempItinerary.removeAt(i),
+                            title: Text(_itineraryEventTitle(event, localizations)),
+                            trailing: Wrap(
+                              spacing: 4,
+                              children: [
+                                IconButton(
+                                  icon: const Icon(Icons.edit, color: Colors.blueGrey),
+                                  tooltip: localizations.text('edit'),
+                                  onPressed: () => openEditEventDialog(i),
                                 ),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
+                                IconButton(
+                                  icon: const Icon(Icons.delete, color: Colors.red),
+                                  tooltip: localizations.text('delete'),
+                                  onPressed: () => setDialogState(
+                                    () => tempItinerary.removeAt(i),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => openAddEventDialog(),
+                  child: Text(localizations.text('landing_event_new')),
+                ),
+                DialogConfirmButton(
+                  label: localizations.text('save'),
+                  onPressed: submitItineraryDialog,
+                ),
+              ],
             ),
-            actions: [
-              TextButton(
-                onPressed: () => openAddEventDialog(),
-                child: Text(localizations.text('landing_event_new')),
-              ),
-              DialogConfirmButton(
-                label: localizations.text('save'),
-                onPressed: () async {
-                  final nav = Navigator.of(ctx);
-                  final updatedWedding = _currentWeddingWith(
-                    itinerary: tempItinerary,
-                  );
-
-                  setState(() => _isLoading = true);
-                  nav.pop();
-
-                  try {
-                    await _saveWeddingAndRefresh(updatedWedding);
-                  } catch (e) {
-                    setState(() => _isLoading = false);
-                  }
-                },
-              ),
-            ],
           );
         },
       ),
